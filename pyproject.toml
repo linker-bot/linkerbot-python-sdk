@@ -5,7 +5,9 @@ description = "Linkerhand Python SDK"
 readme = "README.md"
 authors = [{ name = "Jason Yip", email = "yezi.2022@outlook.com" }]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "python-can>=4.6.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.8,<0.10.0"]
