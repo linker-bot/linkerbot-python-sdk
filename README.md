@@ -1,3 +1,3 @@
-# linkerhand-python-sdk
+# Linkerhand Python SDK
 
 Linkerhand Python SDK
