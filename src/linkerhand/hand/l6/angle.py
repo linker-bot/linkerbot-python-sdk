@@ -1,0 +1,371 @@
+"""Angle control and sensing for L6 robotic hand.
+
+This module provides the AngleManager class for controlling joint angles
+and reading angle sensor data via CAN bus communication.
+"""
+
+import queue
+import threading
+import time
+from dataclasses import dataclass
+
+import can
+
+from linkerhand.comm import CANMessageDispatcher
+from linkerhand.exceptions import StateError, TimeoutError, ValidationError
+
+
+@dataclass(frozen=True)
+class AngleData:
+    """Immutable angle data container.
+
+    Attributes:
+        angles: Tuple of joint angles (6 values).
+        timestamp: Unix timestamp when the data was received.
+    """
+
+    angles: tuple
+    timestamp: float
+
+
+class AngleManager:
+    """Manager for joint angle control and sensing via CAN bus.
+
+    This class handles angle operations with four access modes:
+    1. Angle control: set_angles() - send 6 target angles and cache response
+    2. Blocking mode: get_angles_blocking() - request and wait for 6 current angles
+    3. Streaming mode: stream() - continuous polling with Queue-based delivery
+    4. Cache reading: get_current_angles() - non-blocking read of cached angles
+
+    The manager uses an immutable data design for thread-safe operation without locks
+    for data access. All CAN message processing happens in the dispatcher's thread.
+
+    CAN Protocol:
+        - Control: Send [0x01, angle1...angle6] -> Receive [0x01, current1...current6]
+        - Sensing: Send [0x01] -> Receive [0x01, angle1...angle6]
+
+    Attributes:
+        _dispatcher: CAN message dispatcher for send/receive operations.
+        _latest_data: Most recently received angle data (or None).
+        _blocking_waiters: List of (event, result_holder) for blocking callers.
+        _waiters_lock: Lock protecting the blocking waiters list.
+        _streaming_queue: Queue for streaming mode data delivery (or None if not streaming).
+        _streaming_timer: Background thread for periodic requests (or None).
+        _streaming_interval_ms: Interval in milliseconds for streaming requests.
+    """
+
+    # CAN protocol constants
+    _CONTROL_CMD = 0x01
+    _SENSE_CMD = [0x01]
+    _ANGLE_COUNT = 6
+
+    def __init__(self, arbitration_id: int, dispatcher: CANMessageDispatcher) -> None:
+        """Initialize the angle manager.
+
+        Args:
+            arbitration_id: CAN arbitration ID for angle control/sensing.
+            dispatcher: CAN message dispatcher to use for communication.
+        """
+        self._arbitration_id = arbitration_id
+        self._dispatcher = dispatcher
+        self._dispatcher.subscribe(self._on_message)
+
+        # Latest angle data cache
+        self._latest_data: AngleData | None = None
+
+        # Blocking mode support
+        self._blocking_waiters: list[tuple[threading.Event, dict]] = []
+        self._waiters_lock = threading.Lock()
+
+        # Streaming mode support
+        self._streaming_queue: queue.Queue[AngleData] | None = None
+        self._streaming_timer: threading.Thread | None = None
+        self._streaming_interval_ms: float | None = None
+
+    def set_angles(self, angles: tuple[float, ...] | list[float]) -> None:
+        """Send target angles to the robotic hand.
+
+        This method sends 6 target angles to the hand. The hand will respond
+        with the current angles, which are automatically cached and can be
+        retrieved via get_current_angles().
+
+        Args:
+            angles: Tuple or list of 6 target angles.
+
+        Raises:
+            ValidationError: If angles count is not 6 or values are out of range.
+
+        Example:
+            >>> manager = AngleManager(arbitration_id, dispatcher)
+            >>> manager.set_angles((10, 20, 30, 40, 50, 60))
+            >>> time.sleep(0.1)  # Wait for response
+            >>> current = manager.get_current_angles()
+            >>> if current:
+            ...     print(f"Current angles: {current[0]}")
+        """
+        # Validate input
+        if len(angles) != self._ANGLE_COUNT:
+            raise ValidationError(
+                f"Expected {self._ANGLE_COUNT} angles, got {len(angles)}"
+            )
+
+        # Validate angle values (assuming 0-255 range for byte encoding)
+        for i, angle in enumerate(angles):
+            if not isinstance(angle, (int, float)):
+                raise ValidationError(f"Angle {i} must be numeric, got {type(angle)}")
+            if not 0 <= angle <= 255:
+                raise ValidationError(f"Angle {i} value {angle} out of range [0, 255]")
+
+        # Build and send CAN message
+        data = [self._CONTROL_CMD] + [int(a) for a in angles]
+        msg = can.Message(
+            arbitration_id=self._arbitration_id,
+            data=data,
+            is_extended_id=False,
+        )
+        self._dispatcher.send(msg)
+
+    def get_angles_blocking(self, timeout_ms: float = 100) -> tuple:
+        """Request and wait for current joint angles (blocking).
+
+        This method sends a sensing request and blocks until 6 current angles
+        are received or the timeout expires. If streaming mode is active, this
+        method may receive data from streaming requests.
+
+        Args:
+            timeout_ms: Maximum time to wait in milliseconds (default: 100).
+
+        Returns:
+            Tuple of 6 current joint angles.
+
+        Raises:
+            TimeoutError: If no response is received within timeout.
+            ValidationError: If timeout_ms is not positive.
+
+        Example:
+            >>> manager = AngleManager(arbitration_id, dispatcher)
+            >>> try:
+            ...     angles = manager.get_angles_blocking(timeout_ms=500)
+            ...     print(f"Current angles: {angles}")
+            ... except TimeoutError:
+            ...     print("Request timed out")
+        """
+        if timeout_ms <= 0:
+            raise ValidationError("timeout_ms must be positive")
+
+        event = threading.Event()
+        result_holder: dict[str, tuple | None] = {"data": None}
+
+        # Register this waiter
+        with self._waiters_lock:
+            self._blocking_waiters.append((event, result_holder))
+
+        # Send request only if not streaming (streaming already sends periodically)
+        if self._streaming_queue is None:
+            self._send_sense_request()
+
+        # Wait for data or timeout
+        if event.wait(timeout_ms / 1000.0):
+            if result_holder["data"] is None:
+                raise TimeoutError(f"No data received within {timeout_ms}ms")
+            return result_holder["data"]
+        else:
+            # Timeout - remove ourselves from waiters list
+            with self._waiters_lock:
+                if (event, result_holder) in self._blocking_waiters:
+                    self._blocking_waiters.remove((event, result_holder))
+            raise TimeoutError(f"No angle data received within {timeout_ms}ms")
+
+    def get_current_angles(self) -> tuple[tuple, float] | None:
+        """Get the most recent cached angle data (non-blocking).
+
+        This method returns the last received angle data (either from set_angles()
+        response or get_angles_blocking() response) without sending any new requests.
+
+        Returns:
+            Tuple of (angles, timestamp) or None if no data received yet.
+            - angles: Tuple of 6 angle values
+            - timestamp: Unix timestamp when data was received
+
+        Example:
+            >>> data = manager.get_current_angles()
+            >>> if data:
+            ...     angles, timestamp = data
+            ...     age = time.time() - timestamp
+            ...     if age < 0.1:  # Less than 100ms old
+            ...         print(f"Fresh angles: {angles}")
+        """
+        if self._latest_data is None:
+            return None
+        return (self._latest_data.angles, self._latest_data.timestamp)
+
+    def stream(
+        self, interval_ms: float = 100, maxsize: int = 100
+    ) -> queue.Queue[AngleData]:
+        """Start streaming mode with periodic angle requests.
+
+        Creates a Queue and starts a background thread that periodically requests
+        angle data. Complete data is automatically pushed to the Queue.
+
+        Args:
+            interval_ms: Request interval in milliseconds (default: 100).
+            maxsize: Maximum Queue size (default: 100). When full, oldest data is dropped.
+
+        Returns:
+            Queue instance for receiving AngleData.
+
+        Raises:
+            StateError: If streaming is already active.
+            ValidationError: If interval_ms is not positive or maxsize is not positive.
+
+        Example:
+            >>> manager = AngleManager(arbitration_id, dispatcher)
+            >>> q = manager.stream(interval_ms=100)
+            >>> try:
+            ...     while True:
+            ...         data = q.get(timeout=1.0)
+            ...         print(f"Angles: {data.angles}")
+            ... finally:
+            ...     manager.stop_streaming()
+        """
+        if interval_ms <= 0:
+            raise ValidationError("interval_ms must be positive")
+        if maxsize <= 0:
+            raise ValidationError("maxsize must be positive")
+
+        if self._streaming_queue is not None:
+            raise StateError(
+                "Streaming is already active. Call stop_streaming() first."
+            )
+
+        # Create queue and configure streaming
+        self._streaming_queue = queue.Queue(maxsize=maxsize)
+        self._streaming_interval_ms = interval_ms
+
+        # Start background thread for periodic requests
+        self._streaming_timer = threading.Thread(
+            target=self._streaming_loop, daemon=True, name="AngleManager-Streaming"
+        )
+        self._streaming_timer.start()
+
+        return self._streaming_queue
+
+    def stop_streaming(self) -> None:
+        """Stop streaming mode and clean up resources.
+
+        Stops the background request thread and clears the Queue. This method
+        is idempotent and safe to call multiple times.
+
+        Example:
+            >>> manager.stop_streaming()
+        """
+        if self._streaming_queue is None:
+            return
+
+        # Signal thread to stop by clearing the timer reference
+        self._streaming_timer = None
+
+        # Clear and discard the queue
+        while not self._streaming_queue.empty():
+            try:
+                self._streaming_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        self._streaming_queue = None
+        self._streaming_interval_ms = None
+
+    def _send_sense_request(self) -> None:
+        """Send an angle sensing request via CAN bus.
+
+        Sends a CAN message with data=[0x01] to request current angles.
+        """
+        msg = can.Message(
+            arbitration_id=self._arbitration_id,
+            data=self._SENSE_CMD,
+            is_extended_id=False,
+        )
+        self._dispatcher.send(msg)
+
+    def _streaming_loop(self) -> None:
+        """Background thread loop for streaming mode.
+
+        Periodically sends angle sensing requests at the configured interval.
+        The loop continues until _streaming_timer is set to None by stop_streaming().
+        """
+        if self._streaming_interval_ms is None:
+            raise StateError("Streaming is not active. Call stream() first.")
+        while self._streaming_timer is not None:
+            self._send_sense_request()
+            time.sleep(self._streaming_interval_ms / 1000.0)
+
+    def _on_message(self, msg: can.Message) -> None:
+        """Handle incoming CAN messages (callback from dispatcher thread).
+
+        Filters for angle response messages and updates cache or wakes waiters.
+
+        Args:
+            msg: CAN message from the bus.
+
+        Note:
+            This method executes in the dispatcher's receive thread and must
+            return quickly to avoid blocking message reception.
+        """
+        # Filter: only process messages with correct arbitration ID
+        if msg.arbitration_id != self._arbitration_id:
+            return
+
+        # Filter: only process angle response messages (start with 0x01)
+        if len(msg.data) < 2 or msg.data[0] != self._CONTROL_CMD:
+            return
+
+        # Parse angle data (skip first byte which is the command)
+        angles = tuple(msg.data[1:])
+
+        # Validate angle count (should be 6 angles)
+        if len(angles) != self._ANGLE_COUNT:
+            return
+
+        # Create immutable angle data
+        angle_data = AngleData(angles=angles, timestamp=time.time())
+
+        # Dispatch to all consumers
+        self._on_complete_data(angle_data)
+
+    def _on_complete_data(self, data: AngleData) -> None:
+        """Handle complete angle data by dispatching to all consumers.
+
+        This method:
+        1. Updates the cached latest data
+        2. Wakes up all blocking waiters
+        3. Pushes data to the streaming queue (if active)
+
+        Args:
+            data: Complete angle data to distribute.
+
+        Note:
+            This method executes in the dispatcher's receive thread.
+        """
+        # 1. Update cache (atomic reference assignment)
+        self._latest_data = data
+
+        # 2. Wake up all blocking waiters
+        with self._waiters_lock:
+            for event, result_holder in self._blocking_waiters:
+                result_holder["data"] = data.angles
+                event.set()
+            self._blocking_waiters.clear()
+
+        # 3. Push to streaming queue if active
+        if self._streaming_queue is None:
+            return
+        try:
+            # Non-blocking put
+            self._streaming_queue.put_nowait(data)
+        except queue.Full:
+            # Queue full - remove oldest and try again
+            try:
+                self._streaming_queue.get_nowait()
+                self._streaming_queue.put_nowait(data)
+            except queue.Empty:
+                pass  # Race condition: queue was emptied by consumer
