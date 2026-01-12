@@ -12,6 +12,7 @@ from linkerhand.exceptions import StateError
 
 from .angle import AngleManager
 from .force_sensor import ForceSensorManager
+from .torque import TorqueManager
 
 
 class L6:
@@ -31,11 +32,15 @@ class L6:
 
         # Get sensor data
         sensor_data = hand.force_sensor.get_data_blocking(timeout_ms=500)
+
+        # Control torques
+        hand.torque.set_torques((100, 150, 200, 180, 160, 140))
     ```
 
     Attributes:
         angle: AngleManager instance for joint angle control and sensing.
         force_sensor: ForceSensorManager instance for force sensor data acquisition.
+        torque: TorqueManager instance for joint torque control and sensing.
 
     Args:
         interface_name: Name of the CAN interface (e.g., 'can0', 'vcan0').
@@ -57,6 +62,7 @@ class L6:
             interface_type: Type of CAN interface backend (default: 'socketcan').
             angle_arbitration_id: CAN arbitration ID for angle messages (default: 0x27).
             force_arbitration_id: CAN arbitration ID for force sensor messages (default: 0x27).
+            torque_arbitration_id: CAN arbitration ID for torque messages (default: 0x27).
 
         Example:
             >>> hand = L6('left', 'can0')
@@ -82,6 +88,9 @@ class L6:
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
         self.force_sensor = ForceSensorManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.torque = TorqueManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
 
@@ -146,6 +155,7 @@ class L6:
             # Stop streaming modes
             self.force_sensor.stop_streaming()
             self.angle.stop_streaming()
+            self.torque.stop_streaming()
         except Exception:
             # Ignore errors during cleanup
             pass
