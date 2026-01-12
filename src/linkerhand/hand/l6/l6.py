@@ -12,6 +12,7 @@ from linkerhand.exceptions import StateError
 
 from .angle import AngleManager
 from .force_sensor import ForceSensorManager
+from .speed import SpeedManager
 from .torque import TorqueManager
 
 
@@ -19,7 +20,7 @@ class L6:
     """Main interface for L6 robotic hand control.
 
     This class provides a unified interface for controlling the L6 robotic hand,
-    integrating angle control and force sensor data acquisition. It manages the
+    integrating angle control, speed control and force sensor data acquisition. It manages the
     CAN bus connection and coordinates all subsystems.
 
     The L6 class should be used as a context manager to ensure proper resource
@@ -30,6 +31,9 @@ class L6:
         # Control angles
         hand.angle.set_angles((10, 20, 30, 40, 50, 60))
 
+        # Control speeds
+        hand.speed.set_speeds((100, 100, 100, 100, 100, 100))
+
         # Get sensor data
         sensor_data = hand.force_sensor.get_data_blocking(timeout_ms=500)
 
@@ -39,6 +43,7 @@ class L6:
 
     Attributes:
         angle: AngleManager instance for joint angle control and sensing.
+        speed: SpeedManager instance for motor speed control and sensing.
         force_sensor: ForceSensorManager instance for force sensor data acquisition.
         torque: TorqueManager instance for joint torque control and sensing.
 
@@ -91,6 +96,9 @@ class L6:
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
         self.torque = TorqueManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.speed = SpeedManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
 
@@ -156,6 +164,7 @@ class L6:
             self.force_sensor.stop_streaming()
             self.angle.stop_streaming()
             self.torque.stop_streaming()
+            self.speed.stop_streaming()
         except Exception:
             # Ignore errors during cleanup
             pass
