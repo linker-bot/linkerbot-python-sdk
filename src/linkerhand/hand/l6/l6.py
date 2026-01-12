@@ -27,15 +27,18 @@ class L6:
     cleanup:
 
     ```python
-    with L6(interface_name='can0') as hand:
+    with L6(side='left', interface_name='can0') as hand:
         # Control angles
         hand.angle.set_angles((10, 20, 30, 40, 50, 60))
 
         # Control speeds
         hand.speed.set_speeds((100, 100, 100, 100, 100, 100))
 
-        # Get sensor data
-        sensor_data = hand.force_sensor.get_data_blocking(timeout_ms=500)
+        # Get force sensor data for all fingers
+        all_sensors = hand.force_sensor.get_all_data_blocking(timeout_ms=500)
+
+        # Or get data for a specific finger
+        thumb_data = hand.force_sensor.get_finger('thumb').get_data_blocking()
 
         # Control torques
         hand.torque.set_torques((100, 150, 200, 180, 160, 140))

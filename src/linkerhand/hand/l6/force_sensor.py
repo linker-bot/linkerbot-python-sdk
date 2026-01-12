@@ -1,7 +1,13 @@
 """Force sensor data acquisition for L6 robotic hand.
 
-This module provides the ForceSensorManager class for acquiring multi-frame
-force sensor data via CAN bus communication.
+This module provides force sensor management for the L6 robotic hand:
+
+- SingleForceSensorManager: Manages a single finger's force sensor (requires command_prefix).
+- ForceSensorManager: Manages all 5 fingers' force sensors (thumb, index, middle, ring, pinky).
+
+Each finger has a unique command prefix (0xB1-0xB5) for CAN bus communication.
+Force sensor data is transmitted across 12 CAN frames, each containing 6 bytes,
+for a total of 72 bytes per finger.
 """
 
 import queue
@@ -83,8 +89,8 @@ class FrameBatch:
         return ForceSensorData(values=tuple(data), timestamp=time.time())
 
 
-class ForceSensorManager:
-    """Manager for force sensor data acquisition via CAN bus.
+class SingleForceSensorManager:
+    """Manager for a single finger's force sensor data acquisition via CAN bus.
 
     This class handles multi-frame force sensor data acquisition with three access modes:
     1. Blocking mode: get_data_blocking() - wait for next complete data with timeout
@@ -106,19 +112,25 @@ class ForceSensorManager:
     """
 
     # CAN protocol constants
-    _REQUEST_CMD = [0x02, 0xC6]
-    _RESPONSE_PREFIX = 0x02
     _FRAME_COUNT = 12
     _BYTES_PER_FRAME = 6
 
-    def __init__(self, arbitration_id: int, dispatcher: CANMessageDispatcher) -> None:
+    def __init__(
+        self,
+        arbitration_id: int,
+        dispatcher: CANMessageDispatcher,
+        command_prefix: int,
+    ) -> None:
         """Initialize the force sensor manager.
 
         Args:
             arbitration_id: Arbitration ID for the force sensor requests.
             dispatcher: CAN message dispatcher to use for communication.
+            command_prefix: Command prefix for the sensor (e.g., 0xB1-0xB5 for fingers).
         """
         self._arbitration_id = arbitration_id
+        self._command_prefix = command_prefix
+        self._request_cmd = [command_prefix, 0xC6]
 
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
@@ -285,11 +297,11 @@ class ForceSensorManager:
     def _send_request(self) -> None:
         """Send a force sensor data request via CAN bus.
 
-        Sends a CAN message with arbitration_id=0x27 and data=[0x02, 0xC6].
+        Sends a CAN message with the configured arbitration_id and command.
         """
         msg = can.Message(
             arbitration_id=self._arbitration_id,
-            data=self._REQUEST_CMD,
+            data=self._request_cmd,
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
@@ -324,7 +336,7 @@ class ForceSensorManager:
             return
 
         # Filter: only process sensor response frames
-        if len(msg.data) < 8 or msg.data[0] != self._RESPONSE_PREFIX:
+        if len(msg.data) < 8 or msg.data[0] != self._command_prefix:
             return
 
         # Extract frame information
@@ -389,3 +401,158 @@ class ForceSensorManager:
                 self._streaming_queue.put_nowait(data)
             except queue.Empty:
                 pass  # Race condition: queue was emptied by consumer
+
+
+class ForceSensorManager:
+    """Manager for all finger force sensors on the L6 robotic hand.
+
+    This class manages force sensors for all 5 fingers (thumb, index, middle, ring, pinky)
+    by coordinating multiple SingleForceSensorManager instances. It provides unified access
+    to all finger sensor data.
+
+    Each finger has a unique command prefix:
+    - Thumb: 0xB1
+    - Index: 0xB2
+    - Middle: 0xB3
+    - Ring: 0xB4
+    - Pinky: 0xB5
+
+    Attributes:
+        _arbitration_id: CAN arbitration ID for sensor communication.
+        _dispatcher: CAN message dispatcher shared by all finger sensors.
+        _fingers: Dictionary mapping finger names to their SingleForceSensorManager instances.
+    """
+
+    # Finger command prefix mapping
+    FINGER_COMMANDS = {
+        "thumb": 0xB1,
+        "index": 0xB2,
+        "middle": 0xB3,
+        "ring": 0xB4,
+        "pinky": 0xB5,
+    }
+
+    def __init__(self, arbitration_id: int, dispatcher: CANMessageDispatcher) -> None:
+        """Initialize the hand force sensor manager.
+
+        Args:
+            arbitration_id: CAN arbitration ID for sensor requests.
+            dispatcher: CAN message dispatcher for communication.
+        """
+        self._arbitration_id = arbitration_id
+        self._dispatcher = dispatcher
+
+        # Create a SingleForceSensorManager for each finger
+        self._fingers: dict[str, SingleForceSensorManager] = {
+            finger_name: SingleForceSensorManager(
+                arbitration_id=arbitration_id,
+                dispatcher=dispatcher,
+                command_prefix=cmd_prefix,
+            )
+            for finger_name, cmd_prefix in self.FINGER_COMMANDS.items()
+        }
+
+    def get_data_blocking(self, timeout_ms: float = 1000) -> dict[str, ForceSensorData]:
+        """Get force sensor data for all fingers with blocking wait.
+
+        This method requests data from all fingers and waits for all responses.
+        Each finger is queried independently.
+
+        Args:
+            timeout_ms: Maximum time to wait per finger in milliseconds (default: 1000).
+
+        Returns:
+            Dictionary mapping finger names to their ForceSensorData.
+
+        Raises:
+            TimeoutError: If any finger fails to respond within timeout.
+            ValidationError: If timeout_ms is not positive.
+
+        Example:
+            >>> manager = ForceSensorManager(arbitration_id, dispatcher)
+            >>> all_data = manager.get_all_data_blocking(timeout_ms=500)
+            >>> print(f"Thumb force: {all_data['thumb'].values[0]}")
+        """
+        if timeout_ms <= 0:
+            raise ValidationError("timeout_ms must be positive")
+
+        result = {}
+        for finger_name, sensor in self._fingers.items():
+            result[finger_name] = sensor.get_data_blocking(timeout_ms=timeout_ms)
+        return result
+
+    def stream(
+        self, interval_ms: float = 100, maxsize: int = 100
+    ) -> dict[str, queue.Queue[ForceSensorData]]:
+        """Start streaming mode for all fingers.
+
+        Creates a Queue for each finger and starts background threads that periodically
+        request sensor data. Complete data is automatically pushed to the respective Queues.
+
+        Args:
+            interval_ms: Request interval in milliseconds (default: 100).
+            maxsize: Maximum Queue size per finger (default: 100).
+
+        Returns:
+            Dictionary mapping finger names to their Queue instances.
+
+        Raises:
+            StateError: If any finger is already streaming.
+            ValidationError: If interval_ms or maxsize is not positive.
+
+        Example:
+            >>> manager = ForceSensorManager(arbitration_id, dispatcher)
+            >>> queues = manager.stream_all(interval_ms=100)
+            >>> try:
+            ...     while True:
+            ...         thumb_data = queues['thumb'].get(timeout=1.0)
+            ...         index_data = queues['index'].get(timeout=1.0)
+            ...         process(thumb_data, index_data)
+            ... finally:
+            ...     manager.stop_streaming_all()
+        """
+        if interval_ms <= 0:
+            raise ValidationError("interval_ms must be positive")
+        if maxsize <= 0:
+            raise ValidationError("maxsize must be positive")
+
+        result = {}
+        for finger_name, sensor in self._fingers.items():
+            result[finger_name] = sensor.stream(
+                interval_ms=interval_ms, maxsize=maxsize
+            )
+        return result
+
+    def stop_streaming(self) -> None:
+        """Stop streaming mode for all fingers.
+
+        Stops all background request threads and clears all Queues. This method
+        is idempotent and safe to call multiple times.
+
+        Example:
+            >>> manager.stop_streaming_all()
+        """
+        for sensor in self._fingers.values():
+            sensor.stop_streaming()
+
+    def get_latest_data(self) -> dict[str, ForceSensorData | None]:
+        """Get the most recent cached sensor data for all fingers (non-blocking).
+
+        This method returns the last complete sensor data that was received for
+        each finger, without sending any new requests.
+
+        Returns:
+            Dictionary mapping finger names to their latest ForceSensorData or None.
+
+        Example:
+            >>> all_data = manager.get_all_latest_data()
+            >>> for finger, data in all_data.items():
+            ...     if data:
+            ...         print(f"{finger}: {len(data.values)} bytes")
+            ...     else:
+            ...         print(f"{finger}: No data yet")
+        """
+        return {
+            finger_name: sensor.get_latest_data()
+            for finger_name, sensor in self._fingers.items()
+        }

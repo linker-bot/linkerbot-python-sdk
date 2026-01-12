@@ -5,7 +5,7 @@ via CAN bus communication.
 """
 
 from .angle import AngleData
-from .force_sensor import ForceSensorData
+from .force_sensor import ForceSensorData, ForceSensorManager
 from .l6 import L6
 from .speed import SpeedData
 from .torque import TorqueData
@@ -15,5 +15,6 @@ __all__ = [
     "SpeedData",
     "AngleData",
     "ForceSensorData",
+    "ForceSensorManager",
     "TorqueData",
 ]
