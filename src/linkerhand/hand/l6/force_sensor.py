@@ -340,7 +340,8 @@ class SingleForceSensorManager:
             return
 
         # Extract frame information
-        frame_idx = msg.data[1]  # Frame index: 0x00 to 0x0B (0-11)
+        # Frame index is encoded in high 4 bits: 0x00, 0x10, 0x20, ..., 0xB0
+        frame_idx = msg.data[1] >> 4  # Extract high nibble: 0-11
         frame_data = bytes(msg.data[2:8])  # 6 bytes of payload
 
         # Validate frame index
