@@ -13,6 +13,7 @@ import can
 
 from linkerhand.comm import CANMessageDispatcher
 from linkerhand.exceptions import StateError, TimeoutError, ValidationError
+from linkerhand.queue import IterableQueue
 
 
 @dataclass(frozen=True)
@@ -84,7 +85,7 @@ class TorqueManager:
         self._waiters_lock = threading.Lock()
 
         # Streaming mode support
-        self._streaming_queue: queue.Queue[TorqueData] | None = None
+        self._streaming_queue: IterableQueue[TorqueData] | None = None
         self._streaming_timer: threading.Thread | None = None
         self._streaming_interval_ms: float | None = None
 
@@ -209,18 +210,20 @@ class TorqueManager:
 
     def stream(
         self, interval_ms: float = 100, maxsize: int = 100
-    ) -> queue.Queue[TorqueData]:
+    ) -> IterableQueue[TorqueData]:
         """Start streaming mode with periodic torque requests.
 
-        Creates a Queue and starts a background thread that periodically requests
-        torque data. Complete data is automatically pushed to the Queue.
+        Creates an IterableQueue and starts a background thread that periodically requests
+        torque data. Complete data is automatically pushed to the queue.
+
+        The returned queue supports for-loop iteration and blocks when empty (like Go channels).
 
         Args:
             interval_ms: Request interval in milliseconds (default: 100).
-            maxsize: Maximum Queue size (default: 100). When full, oldest data is dropped.
+            maxsize: Maximum queue size (default: 100). When full, oldest data is dropped.
 
         Returns:
-            Queue instance for receiving TorqueData.
+            IterableQueue[TorqueData] instance for receiving TorqueData.
 
         Raises:
             StateError: If streaming is already active.
@@ -228,6 +231,15 @@ class TorqueManager:
 
         Example:
             >>> manager = TorqueManager(arbitration_id, dispatcher)
+            >>> q = manager.stream(interval_ms=100)
+            >>> try:
+            ...     # Method 1: For-loop iteration (blocks when empty)
+            ...     for data in q:
+            ...         print(f"Torques: {data.torques}")
+            ... finally:
+            ...     manager.stop_streaming()
+            >>>
+            >>> # Method 2: Manual get() calls
             >>> q = manager.stream(interval_ms=100)
             >>> try:
             ...     while True:
@@ -247,7 +259,7 @@ class TorqueManager:
             )
 
         # Create queue and configure streaming
-        self._streaming_queue = queue.Queue(maxsize=maxsize)
+        self._streaming_queue = IterableQueue(maxsize=maxsize)
         self._streaming_interval_ms = interval_ms
 
         # Start background thread for periodic requests
@@ -261,8 +273,9 @@ class TorqueManager:
     def stop_streaming(self) -> None:
         """Stop streaming mode and clean up resources.
 
-        Stops the background request thread and clears the Queue. This method
-        is idempotent and safe to call multiple times.
+        Stops the background request thread and closes the queue, which will
+        end any for-loop iteration. This method is idempotent and safe to call
+        multiple times.
 
         Example:
             >>> manager.stop_streaming()
@@ -273,12 +286,8 @@ class TorqueManager:
         # Signal thread to stop by clearing the timer reference
         self._streaming_timer = None
 
-        # Clear and discard the queue
-        while not self._streaming_queue.empty():
-            try:
-                self._streaming_queue.get_nowait()
-            except queue.Empty:
-                break
+        # Close the queue to signal end of iteration
+        self._streaming_queue.close()
 
         self._streaming_queue = None
         self._streaming_interval_ms = None
