@@ -167,7 +167,6 @@ class L6:
             self.force_sensor.stop_streaming()
             self.angle.stop_streaming()
             self.torque.stop_streaming()
-            self.speed.stop_streaming()
         except Exception:
             # Ignore errors during cleanup
             pass

@@ -83,7 +83,7 @@ class AngleManager:
         self._streaming_timer: threading.Thread | None = None
         self._streaming_interval_ms: float | None = None
 
-    def set_angles(self, angles: tuple[float, ...] | list[float]) -> None:
+    def set_angles(self, angles: tuple[int, ...] | list[int]) -> None:
         """Send target angles to the robotic hand.
 
         This method sends 6 target angles to the hand. The hand will respond
@@ -91,7 +91,7 @@ class AngleManager:
         retrieved via get_current_angles().
 
         Args:
-            angles: Tuple or list of 6 target angles.
+            angles: Tuple or list of 6 target angles (range 0-255 each).
 
         Raises:
             ValidationError: If angles count is not 6 or values are out of range.
@@ -110,15 +110,15 @@ class AngleManager:
                 f"Expected {self._ANGLE_COUNT} angles, got {len(angles)}"
             )
 
-        # Validate angle values (assuming 0-255 range for byte encoding)
+        # Validate angle values (0-255 range for CAN byte encoding)
         for i, angle in enumerate(angles):
-            if not isinstance(angle, (int, float)):
-                raise ValidationError(f"Angle {i} must be numeric, got {type(angle)}")
+            if not isinstance(angle, int):
+                raise ValidationError(f"Angle {i} must be int, got {type(angle)}")
             if not 0 <= angle <= 255:
                 raise ValidationError(f"Angle {i} value {angle} out of range [0, 255]")
 
         # Build and send CAN message
-        data = [self._CONTROL_CMD] + [int(a) for a in angles]
+        data = [self._CONTROL_CMD, *angles]
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=data,

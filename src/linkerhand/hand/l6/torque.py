@@ -89,7 +89,7 @@ class TorqueManager:
         self._streaming_timer: threading.Thread | None = None
         self._streaming_interval_ms: float | None = None
 
-    def set_torques(self, torques: tuple[float, ...] | list[float]) -> None:
+    def set_torques(self, torques: tuple[int, ...] | list[int]) -> None:
         """Send target torques to the robotic hand.
 
         This method sends 6 target torques to the hand. The hand will respond
@@ -97,7 +97,7 @@ class TorqueManager:
         retrieved via get_current_torques().
 
         Args:
-            torques: Tuple or list of 6 target torques.
+            torques: Tuple or list of 6 target torques (range 0-255 each).
 
         Raises:
             ValidationError: If torques count is not 6 or values are out of range.
@@ -116,17 +116,17 @@ class TorqueManager:
                 f"Expected {self._TORQUE_COUNT} torques, got {len(torques)}"
             )
 
-        # Validate torque values (assuming 0-255 range for byte encoding)
+        # Validate torque values (0-255 range for CAN byte encoding)
         for i, torque in enumerate(torques):
-            if not isinstance(torque, (int, float)):
-                raise ValidationError(f"Torque {i} must be numeric, got {type(torque)}")
+            if not isinstance(torque, int):
+                raise ValidationError(f"Torque {i} must be int, got {type(torque)}")
             if not 0 <= torque <= 255:
                 raise ValidationError(
                     f"Torque {i} value {torque} out of range [0, 255]"
                 )
 
         # Build and send CAN message
-        data = [self._CONTROL_CMD] + [int(t) for t in torques]
+        data = [self._CONTROL_CMD, *torques]
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=data,
