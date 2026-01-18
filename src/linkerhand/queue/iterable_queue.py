@@ -10,11 +10,9 @@ from typing import TypeVar
 
 from linkerhand.exceptions import StateError
 
-# Sentinel value to signal end of iteration
-_STOP_ITERATION = object()
-
-# Type variable for generic queue
 T = TypeVar("T")
+
+_POLL_TIMEOUT = 0.1
 
 
 class IterableQueue[T]:
@@ -44,7 +42,7 @@ class IterableQueue[T]:
         Args:
             maxsize: Maximum queue size (0 = unlimited).
         """
-        self._queue: queue.Queue = queue.Queue(maxsize=maxsize)
+        self._queue: queue.Queue[T] = queue.Queue(maxsize=maxsize)
         self._closed = False
 
     def put(self, item: T, block: bool = True, timeout: float | None = None) -> None:
@@ -89,15 +87,18 @@ class IterableQueue[T]:
             queue.Empty: If queue is empty and block=False or timeout expires.
             StopIteration: If queue is closed and empty.
         """
-        try:
-            item = self._queue.get(block=block, timeout=timeout)
-            if item is _STOP_ITERATION:
-                raise StopIteration
-            return item
-        except queue.Empty:
-            if self._closed:
-                raise StopIteration
-            raise
+        if self._closed and self._queue.empty():
+            raise StopIteration
+
+        if not block:
+            return self._queue.get(block=False, timeout=timeout)
+
+        # Blocking mode: poll with timeout to check closed state
+        while True:
+            try:
+                return self._queue.get(block=True, timeout=_POLL_TIMEOUT)
+            except queue.Empty:
+                continue
 
     def get_nowait(self) -> T:
         """Get an item without blocking.
@@ -125,9 +126,7 @@ class IterableQueue[T]:
         After closing, any blocking get() or iteration will stop once the queue is empty.
         New items cannot be added after closing.
         """
-        if not self._closed:
-            self._closed = True
-            self._queue.put(_STOP_ITERATION)
+        self._closed = True
 
     def __iter__(self):
         """Return iterator for the queue."""
