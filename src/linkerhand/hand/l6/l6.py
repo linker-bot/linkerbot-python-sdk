@@ -11,8 +11,11 @@ from linkerhand.comm import CANMessageDispatcher
 from linkerhand.exceptions import StateError
 
 from .angle import AngleManager
+from .current import CurrentManager
+from .fault import FaultManager
 from .force_sensor import ForceSensorManager
 from .speed import SpeedManager
+from .temperature import TemperatureManager
 from .torque import TorqueManager
 
 
@@ -37,11 +40,23 @@ class L6:
         # Get force sensor data for all fingers
         all_sensors = hand.force_sensor.get_all_data_blocking(timeout_ms=500)
 
+        # Get temperature data for all fingers
+        all_temperatures = hand.temperature.get_temperatures_blocking(timeout_ms=500)
+
+        # Get current data for all fingers
+        all_currents = hand.current.get_currents_blocking(timeout_ms=500)
+
         # Or get data for a specific finger
         thumb_data = hand.force_sensor.get_finger('thumb').get_data_blocking()
 
         # Control torques
         hand.torque.set_torques((100, 150, 200, 180, 160, 140))
+
+        # Clear fault for joint 1
+        hand.fault.clear_faults((1, 0, 0, 0, 0, 0))
+
+        # Clear fault for all joints
+        hand.fault.clear_faults(None, True)
     ```
 
     Attributes:
@@ -49,7 +64,9 @@ class L6:
         speed: SpeedManager instance for motor speed control and sensing.
         force_sensor: ForceSensorManager instance for force sensor data acquisition.
         torque: TorqueManager instance for joint torque control and sensing.
-
+        temperature: TemperatureManager instance for temperature data acquisition.
+        current: CurrentManager instance for current data acquisition.
+        fault: FaultManager instance for fault data acquisition.
     Args:
         interface_name: Name of the CAN interface (e.g., 'can0', 'vcan0').
         interface_type: Type of CAN interface backend (default: 'socketcan').
@@ -104,7 +121,15 @@ class L6:
         self.speed = SpeedManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
-
+        self.temperature = TemperatureManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.current = CurrentManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.fault = FaultManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
         # State tracking
         self._closed = False
 
@@ -151,7 +176,7 @@ class L6:
         This method is idempotent and safe to call multiple times.
 
         Example:
-            >>> hand = L6('can0')
+            >>> hand = L6('left', 'can0')
             >>> hand.angle.set_angles((10, 20, 30, 40, 50, 60))
             >>> hand.close()  # Clean up resources
 
@@ -167,6 +192,8 @@ class L6:
             self.force_sensor.stop_streaming()
             self.angle.stop_streaming()
             self.torque.stop_streaming()
+            self.temperature.stop_streaming()
+            self.current.stop_streaming()
         except Exception:
             # Ignore errors during cleanup
             pass
@@ -199,7 +226,7 @@ class L6:
             True if the interface is closed, False otherwise.
 
         Example:
-            >>> hand = L6('can0')
+            >>> hand = L6('left', 'can0')
             >>> print(hand.is_closed())  # False
             >>> hand.close()
             >>> print(hand.is_closed())  # True
