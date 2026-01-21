@@ -126,7 +126,7 @@ class AngleManager:
         )
         self._dispatcher.send(msg)
 
-    def get_angles_blocking(self, timeout_ms: float = 100) -> tuple:
+    def get_angles_blocking(self, timeout_ms: float = 100) -> AngleData:
         """Request and wait for current joint angles (blocking).
 
         This method sends a sensing request and blocks until 6 current angles
@@ -137,7 +137,7 @@ class AngleManager:
             timeout_ms: Maximum time to wait in milliseconds (default: 100).
 
         Returns:
-            Tuple of 6 current joint angles.
+            AngleData instance containing angles and timestamp.
 
         Raises:
             TimeoutError: If no response is received within timeout.
@@ -146,8 +146,8 @@ class AngleManager:
         Example:
             >>> manager = AngleManager(arbitration_id, dispatcher)
             >>> try:
-            ...     angles = manager.get_angles_blocking(timeout_ms=500)
-            ...     print(f"Current angles: {angles}")
+            ...     data = manager.get_angles_blocking(timeout_ms=500)
+            ...     print(f"Current angles: {data.angles}")
             ... except TimeoutError:
             ...     print("Request timed out")
         """
@@ -155,7 +155,7 @@ class AngleManager:
             raise ValidationError("timeout_ms must be positive")
 
         event = threading.Event()
-        result_holder: dict[str, tuple | None] = {"data": None}
+        result_holder: dict[str, AngleData | None] = {"data": None}
 
         # Register this waiter
         with self._waiters_lock:
@@ -177,28 +177,23 @@ class AngleManager:
                     self._blocking_waiters.remove((event, result_holder))
             raise TimeoutError(f"No angle data received within {timeout_ms}ms")
 
-    def get_current_angles(self) -> tuple[tuple, float] | None:
+    def get_current_angles(self) -> AngleData | None:
         """Get the most recent cached angle data (non-blocking).
 
         This method returns the last received angle data (either from set_angles()
         response or get_angles_blocking() response) without sending any new requests.
 
         Returns:
-            Tuple of (angles, timestamp) or None if no data received yet.
-            - angles: Tuple of 6 angle values
-            - timestamp: Unix timestamp when data was received
+            AngleData instance or None if no data received yet.
 
         Example:
             >>> data = manager.get_current_angles()
             >>> if data:
-            ...     angles, timestamp = data
-            ...     age = time.time() - timestamp
+            ...     age = time.time() - data.timestamp
             ...     if age < 0.1:  # Less than 100ms old
-            ...         print(f"Fresh angles: {angles}")
+            ...         print(f"Fresh angles: {data.angles}")
         """
-        if self._latest_data is None:
-            return None
-        return (self._latest_data.angles, self._latest_data.timestamp)
+        return self._latest_data
 
     def stream(
         self, interval_ms: float = 100, maxsize: int = 100
@@ -361,7 +356,7 @@ class AngleManager:
         # 2. Wake up all blocking waiters
         with self._waiters_lock:
             for event, result_holder in self._blocking_waiters:
-                result_holder["data"] = data.angles
+                result_holder["data"] = data
                 event.set()
             self._blocking_waiters.clear()
 

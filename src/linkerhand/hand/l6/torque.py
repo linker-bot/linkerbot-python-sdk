@@ -134,7 +134,7 @@ class TorqueManager:
         )
         self._dispatcher.send(msg)
 
-    def get_torques_blocking(self, timeout_ms: float = 100) -> tuple:
+    def get_torques_blocking(self, timeout_ms: float = 100) -> TorqueData:
         """Request and wait for current joint torques (blocking).
 
         This method sends a sensing request and blocks until 6 current torques
@@ -145,7 +145,7 @@ class TorqueManager:
             timeout_ms: Maximum time to wait in milliseconds (default: 100).
 
         Returns:
-            Tuple of 6 current joint torques.
+            TorqueData instance containing torques and timestamp.
 
         Raises:
             TimeoutError: If no response is received within timeout.
@@ -154,8 +154,8 @@ class TorqueManager:
         Example:
             >>> manager = TorqueManager(arbitration_id, dispatcher)
             >>> try:
-            ...     torques = manager.get_torques_blocking(timeout_ms=500)
-            ...     print(f"Current torques: {torques}")
+            ...     data = manager.get_torques_blocking(timeout_ms=500)
+            ...     print(f"Current torques: {data.torques}")
             ... except TimeoutError:
             ...     print("Request timed out")
         """
@@ -163,7 +163,7 @@ class TorqueManager:
             raise ValidationError("timeout_ms must be positive")
 
         event = threading.Event()
-        result_holder: dict[str, tuple | None] = {"data": None}
+        result_holder: dict[str, TorqueData | None] = {"data": None}
 
         # Register this waiter
         with self._waiters_lock:
@@ -185,7 +185,7 @@ class TorqueManager:
                     self._blocking_waiters.remove((event, result_holder))
             raise TimeoutError(f"No torque data received within {timeout_ms}ms")
 
-    def get_current_torques(self) -> tuple[tuple, float] | None:
+    def get_current_torques(self) -> TorqueData | None:
         """Get the most recent cached torque data (non-blocking).
 
         This method returns the last received torque data (either from set_torques()
@@ -193,20 +193,15 @@ class TorqueManager:
 
         Returns:
             TorqueData instance or None if no data received yet.
-            - torques: Tuple of 6 torque values
-            - timestamp: Unix timestamp when data was received
 
         Example:
             >>> data = manager.get_current_torques()
             >>> if data:
-            ...     torques, timestamp = data
             ...     age = time.time() - data.timestamp
             ...     if age < 0.1:  # Less than 100ms old
-            ...         print(f"Fresh torques: {torques}")
+            ...         print(f"Fresh torques: {data.torques}")
         """
-        if self._latest_data is None:
-            return None
-        return (self._latest_data.torques, self._latest_data.timestamp)
+        return self._latest_data
 
     def stream(
         self, interval_ms: float = 100, maxsize: int = 100
@@ -369,7 +364,7 @@ class TorqueManager:
         # 2. Wake up all blocking waiters
         with self._waiters_lock:
             for event, result_holder in self._blocking_waiters:
-                result_holder["data"] = data.torques
+                result_holder["data"] = data
                 event.set()
             self._blocking_waiters.clear()
 
