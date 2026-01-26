@@ -103,7 +103,7 @@ class SpeedManager:
             >>> time.sleep(0.1)  # Wait for response
             >>> current = manager.get_current_speeds()
             >>> if current:
-            ...     print(f"Current speeds: {current[0]}")
+            ...     print(f"Current speeds: {current.speeds}")
         """
         # Validate input
         if len(speeds) != self._SPEED_COUNT:
@@ -146,7 +146,7 @@ class SpeedManager:
             >>> time.sleep(0.1)  # Wait for response
             >>> current = manager.get_current_accelerations()
             >>> if current:
-            ...     print(f"Current accelerations: {current[0]}")
+            ...     print(f"Current accelerations: {current.accelerations}")
         """
         # Validate input
         if len(accels) != self._SPEED_COUNT:
@@ -174,54 +174,41 @@ class SpeedManager:
         )
         self._dispatcher.send(msg)
 
-    def get_current_speeds(self) -> tuple[tuple, float] | None:
+    def get_current_speeds(self) -> SpeedData | None:
         """Get the most recent cached speed data (non-blocking).
 
         This method returns the last received speed data (from set_speeds()
         response) without sending any new requests.
 
         Returns:
-            Tuple of (speeds, timestamp) or None if no data received yet.
-            - speeds: Tuple of 6 speed values
-            - timestamp: Unix timestamp when data was received
+            SpeedData instance or None if no data received yet.
 
         Example:
             >>> data = manager.get_current_speeds()
             >>> if data:
-            ...     speeds, timestamp = data
-            ...     age = time.time() - timestamp
+            ...     age = time.time() - data.timestamp
             ...     if age < 0.1:  # Less than 100ms old
-            ...         print(f"Fresh speeds: {speeds}")
+            ...         print(f"Fresh speeds: {data.speeds}")
         """
-        if self._latest_speed_data is None:
-            return None
-        return (self._latest_speed_data.speeds, self._latest_speed_data.timestamp)
+        return self._latest_speed_data
 
-    def get_current_accelerations(self) -> tuple[tuple, float] | None:
+    def get_current_accelerations(self) -> AccelerationData | None:
         """Get the most recent cached acceleration data (non-blocking).
 
         This method returns the last received acceleration data (from set_accelerations()
         response) without sending any new requests.
 
         Returns:
-            Tuple of (accelerations, timestamp) or None if no data received yet.
-            - accelerations: Tuple of 6 acceleration values
-            - timestamp: Unix timestamp when data was received
+            AccelerationData instance or None if no data received yet.
 
         Example:
             >>> data = manager.get_current_accelerations()
             >>> if data:
-            ...     accels, timestamp = data
-            ...     age = time.time() - timestamp
+            ...     age = time.time() - data.timestamp
             ...     if age < 0.1:  # Less than 100ms old
-            ...         print(f"Fresh accelerations: {accels}")
+            ...         print(f"Fresh accelerations: {data.accelerations}")
         """
-        if self._latest_acceleration_data is None:
-            return None
-        return (
-            self._latest_acceleration_data.accelerations,
-            self._latest_acceleration_data.timestamp,
-        )
+        return self._latest_acceleration_data
 
     def _on_message(self, msg: can.Message) -> None:
         """Handle incoming CAN messages (callback from dispatcher thread).

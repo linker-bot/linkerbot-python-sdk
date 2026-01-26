@@ -82,7 +82,7 @@ class TemperatureManager:
         self._streaming_timer: threading.Thread | None = None
         self._streaming_interval_ms: float | None = None
 
-    def get_temperatures_blocking(self, timeout_ms: float = 100) -> tuple:
+    def get_temperatures_blocking(self, timeout_ms: float = 100) -> TemperatureData:
         """Request and wait for current joint temperatures (blocking).
 
         This method sends a sensing request and blocks until 6 current temperatures
@@ -93,7 +93,7 @@ class TemperatureManager:
             timeout_ms: Maximum time to wait in milliseconds (default: 100).
 
         Returns:
-            Tuple of 6 current joint temperatures.
+            TemperatureData instance containing temperatures and timestamp.
 
         Raises:
             TimeoutError: If no response is received within timeout.
@@ -102,8 +102,8 @@ class TemperatureManager:
         Example:
             >>> manager = TemperatureManager(arbitration_id, dispatcher)
             >>> try:
-            ...     temps = manager.get_temperatures_blocking(timeout_ms=500)
-            ...     print(f"Current temperatures: {temps}")
+            ...     data = manager.get_temperatures_blocking(timeout_ms=500)
+            ...     print(f"Current temperatures: {data.temps}")
             ... except TimeoutError:
             ...     print("Request timed out")
         """
@@ -111,7 +111,7 @@ class TemperatureManager:
             raise ValidationError("timeout_ms must be positive")
 
         event = threading.Event()
-        result_holder: dict[str, tuple | None] = {"data": None}
+        result_holder: dict[str, TemperatureData | None] = {"data": None}
 
         # Register this waiter
         with self._waiters_lock:
@@ -133,28 +133,23 @@ class TemperatureManager:
                     self._blocking_waiters.remove((event, result_holder))
             raise TimeoutError(f"No temperature data received within {timeout_ms}ms")
 
-    def get_current_temperatures(self) -> tuple[tuple, float] | None:
+    def get_current_temperatures(self) -> TemperatureData | None:
         """Get the most recent cached temperature data (non-blocking).
 
         This method returns the last received temperature data (either from
         get_temperatures_blocking() response or streaming) without sending any new requests.
 
         Returns:
-            Tuple of (temps, timestamp) or None if no data received yet.
-            - temps: Tuple of 6 temperature values
-            - timestamp: Unix timestamp when data was received
+            TemperatureData instance or None if no data received yet.
 
         Example:
             >>> data = manager.get_current_temperatures()
             >>> if data:
-            ...     temps, timestamp = data
-            ...     age = time.time() - timestamp
+            ...     age = time.time() - data.timestamp
             ...     if age < 0.2:  # Less than 200ms old
-            ...         print(f"Fresh temperatures: {temps}")
+            ...         print(f"Fresh temperatures: {data.temps}")
         """
-        if self._latest_data is None:
-            return None
-        return (self._latest_data.temps, self._latest_data.timestamp)
+        return self._latest_data
 
     def stream(
         self, interval_ms: float = 200, maxsize: int = 100
@@ -319,7 +314,7 @@ class TemperatureManager:
         # 2. Wake up all blocking waiters
         with self._waiters_lock:
             for event, result_holder in self._blocking_waiters:
-                result_holder["data"] = data.temps
+                result_holder["data"] = data
                 event.set()
             self._blocking_waiters.clear()
 

@@ -84,7 +84,7 @@ class TorqueManager:
             >>> time.sleep(0.1)  # Wait for response
             >>> current = manager.get_current_torques()
             >>> if current:
-            ...     print(f"Current torques: {current[0]}")
+            ...     print(f"Current torques: {current.torques}")
         """
         # Validate input
         if len(torques) != self._TORQUE_COUNT:
@@ -111,28 +111,23 @@ class TorqueManager:
         )
         self._dispatcher.send(msg)
 
-    def get_current_torques(self) -> tuple[tuple, float] | None:
+    def get_current_torques(self) -> TorqueData | None:
         """Get the most recent cached torque data (non-blocking).
 
         This method returns the last received torque data (from set_torques()
         response) without sending any new requests.
 
         Returns:
-            Tuple of (torques, timestamp) or None if no data received yet.
-            - torques: Tuple of 6 torque values
-            - timestamp: Unix timestamp when data was received
+            TorqueData instance or None if no data received yet.
 
         Example:
             >>> data = manager.get_current_torques()
             >>> if data:
-            ...     torques, timestamp = data
-            ...     age = time.time() - timestamp
+            ...     age = time.time() - data.timestamp
             ...     if age < 0.1:  # Less than 100ms old
-            ...         print(f"Fresh torques: {torques}")
+            ...         print(f"Fresh torques: {data.torques}")
         """
-        if self._latest_data is None:
-            return None
-        return (self._latest_data.torques, self._latest_data.timestamp)
+        return self._latest_data
 
     def _on_message(self, msg: can.Message) -> None:
         """Handle incoming CAN messages (callback from dispatcher thread).
