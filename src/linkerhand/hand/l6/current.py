@@ -15,7 +15,95 @@ from linkerhand.comm import CANMessageDispatcher
 from linkerhand.exceptions import StateError, TimeoutError, ValidationError
 from linkerhand.queue import IterableQueue
 
-from .types import L6Current
+
+@dataclass
+class L6Current:
+    """Motor currents for L6 hand in milliamps (mA).
+
+    Attributes:
+        thumb_flex: Thumb flexion motor current in mA
+        thumb_abd: Thumb abduction motor current in mA
+        index: Index finger motor current in mA
+        middle: Middle finger motor current in mA
+        ring: Ring finger motor current in mA
+        pinky: Pinky finger motor current in mA
+    """
+
+    thumb_flex: float
+    thumb_abd: float
+    index: float
+    middle: float
+    ring: float
+    pinky: float
+
+    def to_list(self) -> list[float]:
+        """Convert to list of floats in joint order.
+
+        Returns:
+            List of 6 currents [thumb_flex, thumb_abd, index, middle, ring, pinky]
+        """
+        return [
+            self.thumb_flex,
+            self.thumb_abd,
+            self.index,
+            self.middle,
+            self.ring,
+            self.pinky,
+        ]
+
+    def to_raw(self) -> list[int]:
+        # Internal: Convert to hardware communication format
+        return [int(v * 255 / 1400) for v in self.to_list()]
+
+    @classmethod
+    def from_list(cls, values: list[float]) -> "L6Current":
+        """Construct from list of floats in milliamps.
+
+        Args:
+            values: List of 6 float values in mA
+
+        Returns:
+            L6Current instance
+
+        Raises:
+            ValueError: If list doesn't have exactly 6 elements
+        """
+        if len(values) != 6:
+            raise ValueError(f"Expected 6 values, got {len(values)}")
+        return cls(
+            thumb_flex=values[0],
+            thumb_abd=values[1],
+            index=values[2],
+            middle=values[3],
+            ring=values[4],
+            pinky=values[5],
+        )
+
+    @classmethod
+    def from_raw(cls, values: list[int]) -> "L6Current":
+        # Internal: Construct from hardware communication format
+        if len(values) != 6:
+            raise ValueError(f"Expected 6 values, got {len(values)}")
+        currents_mA = [v * 1400 / 255 for v in values]
+        return cls.from_list(currents_mA)
+
+    def __getitem__(self, index: int) -> float:
+        """Support indexing: currents[0] returns thumb_flex.
+
+        Args:
+            index: Joint index (0-5)
+
+        Returns:
+            Current value
+
+        Raises:
+            IndexError: If index is out of range
+        """
+        return self.to_list()[index]
+
+    def __len__(self) -> int:
+        """Return number of current sensors (always 6 for L6)."""
+        return 6
 
 
 @dataclass(frozen=True)

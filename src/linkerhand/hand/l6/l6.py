@@ -12,11 +12,16 @@ from linkerhand.exceptions import StateError
 
 from .angle import AngleManager
 from .current import CurrentManager
+from .device_id import DeviceIDManager
+from .factory_reset import FactoryResetManager
 from .fault import FaultManager
 from .force_sensor import ForceSensorManager
+from .limit_compensation import LimitCompensationManager
 from .speed import SpeedManager
+from .stall import StallManager
 from .temperature import TemperatureManager
 from .torque import TorqueManager
+from .version import VersionManager
 
 
 class L6:
@@ -64,6 +69,30 @@ class L6:
             # Check index finger
             if fault_data.faults.index.has_fault():
                 print(f"Index: {fault_data.faults.index.get_fault_names()}")
+
+        # Configure stall detection
+        hand.stall.set_stall_time([500.0, 500.0, 500.0, 500.0, 500.0, 500.0])  # 500ms
+        hand.stall.set_stall_threshold([500.0, 500.0, 500.0, 500.0, 500.0, 500.0])  # 500mA
+        hand.stall.set_stall_torque([700.0, 700.0, 700.0, 700.0, 700.0, 700.0])  # 700mA
+
+        # Get device version information
+        device_info = hand.version.get_device_info()
+        print(f"Serial Number: {device_info.serial_number}")
+        print(f"PCB Version: {device_info.pcb_version}")
+        print(f"Firmware Version: {device_info.firmware_version}")
+        print(f"Mechanical Version: {device_info.mechanical_version}")
+
+        # Configure joint limit compensation
+        hand.limit_compensation.set_limit_compensation([50, 30, 60, 60, 60, 60])
+        comp_data = hand.limit_compensation.get_limit_compensation_blocking()
+        print(f"Limit compensation: {comp_data.compensation.thumb_flex}")
+
+        # Configure device CAN IDs
+        device_ids = hand.device_id.set_tx_id(0x10)
+        print(f"TX ID: {device_ids.tx_id}, RX ID: {device_ids.rx_id}")
+
+        # Factory reset (USE WITH CAUTION!)
+        # hand.factory_reset.reset_to_factory()
     ```
 
     Attributes:
@@ -74,11 +103,15 @@ class L6:
         temperature: TemperatureManager instance for temperature data acquisition.
         current: CurrentManager instance for current data acquisition.
         fault: FaultManager instance for fault clearing and status reading.
+        stall: StallManager instance for stall detection configuration.
+        version: VersionManager instance for device version information.
+        limit_compensation: LimitCompensationManager instance for joint limit compensation configuration.
+        device_id: DeviceIDManager instance for device CAN ID configuration.
+        factory_reset: FactoryResetManager instance for factory reset operations.
     Args:
+        side: Side of the hand (left or right, default: left).
         interface_name: Name of the CAN interface (e.g., 'can0', 'vcan0').
         interface_type: Type of CAN interface backend (default: 'socketcan').
-        angle_arbitration_id: CAN arbitration ID for angle messages (default: 0x27).
-        force_arbitration_id: CAN arbitration ID for force sensor messages (default: 0x27).
     """
 
     def __init__(
@@ -90,17 +123,9 @@ class L6:
         """Initialize the L6 robotic hand interface.
 
         Args:
+            side: Side of the hand (left or right, default: left).
             interface_name: Name of the CAN interface (e.g., 'can0', 'vcan0').
             interface_type: Type of CAN interface backend (default: 'socketcan').
-            angle_arbitration_id: CAN arbitration ID for angle messages (default: 0x27).
-            force_arbitration_id: CAN arbitration ID for force sensor messages (default: 0x27).
-            torque_arbitration_id: CAN arbitration ID for torque messages (default: 0x27).
-
-        Example:
-            >>> hand = L6('left', 'can0')
-            >>> hand.__enter__()  # Or use with statement
-            >>> hand.angle.set_angles((10, 20, 30, 40, 50, 60))
-            >>> hand.close()
 
         Note:
             The CAN dispatcher is automatically started when entering the context manager.
@@ -135,6 +160,21 @@ class L6:
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
         self.fault = FaultManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.stall = StallManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.version = VersionManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.limit_compensation = LimitCompensationManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.device_id = DeviceIDManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.factory_reset = FactoryResetManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
         # State tracking

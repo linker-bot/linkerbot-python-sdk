@@ -15,7 +15,95 @@ from linkerhand.comm import CANMessageDispatcher
 from linkerhand.exceptions import StateError, TimeoutError, ValidationError
 from linkerhand.queue import IterableQueue
 
-from .types import L6Temperature
+
+@dataclass
+class L6Temperature:
+    """Motor temperatures for L6 hand in degrees Celsius (°C).
+
+    Attributes:
+        thumb_flex: Thumb flexion motor temperature in °C
+        thumb_abd: Thumb abduction motor temperature in °C
+        index: Index finger motor temperature in °C
+        middle: Middle finger motor temperature in °C
+        ring: Ring finger motor temperature in °C
+        pinky: Pinky finger motor temperature in °C
+    """
+
+    thumb_flex: float
+    thumb_abd: float
+    index: float
+    middle: float
+    ring: float
+    pinky: float
+
+    def to_list(self) -> list[float]:
+        """Convert to list of floats in joint order.
+
+        Returns:
+            List of 6 temperatures in °C [thumb_flex, thumb_abd, index, middle, ring, pinky]
+        """
+        return [
+            self.thumb_flex,
+            self.thumb_abd,
+            self.index,
+            self.middle,
+            self.ring,
+            self.pinky,
+        ]
+
+    def to_raw(self) -> list[int]:
+        # Internal: Convert to hardware communication format
+        return [int(v) for v in self.to_list()]
+
+    @classmethod
+    def from_list(cls, values: list[float]) -> "L6Temperature":
+        """Construct from list of floats in degrees Celsius.
+
+        Args:
+            values: List of 6 float values in °C
+
+        Returns:
+            L6Temperature instance
+
+        Raises:
+            ValueError: If list doesn't have exactly 6 elements
+        """
+        if len(values) != 6:
+            raise ValueError(f"Expected 6 values, got {len(values)}")
+        return cls(
+            thumb_flex=values[0],
+            thumb_abd=values[1],
+            index=values[2],
+            middle=values[3],
+            ring=values[4],
+            pinky=values[5],
+        )
+
+    @classmethod
+    def from_raw(cls, values: list[int]) -> "L6Temperature":
+        # Internal: Construct from hardware communication format
+        if len(values) != 6:
+            raise ValueError(f"Expected 6 values, got {len(values)}")
+        temperatures_celsius = [float(v) for v in values]
+        return cls.from_list(temperatures_celsius)
+
+    def __getitem__(self, index: int) -> float:
+        """Support indexing: temperatures[0] returns thumb_flex.
+
+        Args:
+            index: Joint index (0-5)
+
+        Returns:
+            Temperature value
+
+        Raises:
+            IndexError: If index is out of range
+        """
+        return self.to_list()[index]
+
+    def __len__(self) -> int:
+        """Return number of temperature sensors (always 6 for L6)."""
+        return 6
 
 
 @dataclass(frozen=True)
