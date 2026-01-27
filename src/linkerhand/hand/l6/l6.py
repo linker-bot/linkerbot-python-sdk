@@ -52,11 +52,18 @@ class L6:
         # Control torques
         hand.torque.set_torques((100, 150, 200, 180, 160, 140))
 
-        # Clear fault for joint 1
-        hand.fault.clear_faults((1, 0, 0, 0, 0, 0))
+        # Clear all faults
+        hand.fault.clear_faults()
 
-        # Clear fault for all joints
-        hand.fault.clear_faults(None, True)
+        # Read fault status
+        fault_data = hand.fault.get_faults_blocking(timeout_ms=500)
+        if fault_data.faults.has_any_fault():
+            # Check specific joint
+            if fault_data.faults.thumb_flex.has_fault():
+                print(f"Thumb flex: {fault_data.faults.thumb_flex.get_fault_names()}")
+            # Check index finger
+            if fault_data.faults.index.has_fault():
+                print(f"Index: {fault_data.faults.index.get_fault_names()}")
     ```
 
     Attributes:
@@ -66,7 +73,7 @@ class L6:
         torque: TorqueManager instance for joint torque control and sensing.
         temperature: TemperatureManager instance for temperature data acquisition.
         current: CurrentManager instance for current data acquisition.
-        fault: FaultManager instance for fault data acquisition.
+        fault: FaultManager instance for fault clearing and status reading.
     Args:
         interface_name: Name of the CAN interface (e.g., 'can0', 'vcan0').
         interface_type: Type of CAN interface backend (default: 'socketcan').
@@ -185,6 +192,7 @@ class L6:
             self.torque.stop_streaming()
             self.temperature.stop_streaming()
             self.current.stop_streaming()
+            self.fault.stop_streaming()
         except Exception:
             # Ignore errors during cleanup
             pass

@@ -6,12 +6,20 @@ via CAN bus communication.
 
 from .angle import AngleData
 from .current import CurrentData, CurrentManager
-from .fault import FaultManager
+from .fault import FaultData, FaultManager
 from .force_sensor import ForceSensorData, ForceSensorManager
 from .l6 import L6
 from .temperature import TemperatureData, TemperatureManager
 from .torque import TorqueData
-from .types import L6Angle, L6Current, L6Speed, L6Temperature, L6Torque
+from .types import (
+    FaultCode,
+    L6Angle,
+    L6Current,
+    L6Fault,
+    L6Speed,
+    L6Temperature,
+    L6Torque,
+)
 
 __all__ = [
     "L6",
@@ -23,10 +31,13 @@ __all__ = [
     "TemperatureManager",
     "CurrentData",
     "CurrentManager",
+    "FaultData",
     "FaultManager",
+    "FaultCode",
     "L6Angle",
     "L6Torque",
     "L6Speed",
     "L6Temperature",
     "L6Current",
+    "L6Fault",
 ]
