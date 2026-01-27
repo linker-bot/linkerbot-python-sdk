@@ -15,17 +15,19 @@ from linkerhand.comm import CANMessageDispatcher
 from linkerhand.exceptions import StateError, TimeoutError, ValidationError
 from linkerhand.queue import IterableQueue
 
+from .types import L6Temperature
+
 
 @dataclass(frozen=True)
 class TemperatureData:
     """Immutable temperature data container.
 
     Attributes:
-        temperatures: Tuple of motor temperatures (6 values, range 0-255).
+        temperatures: L6Temperature instance containing motor temperatures in degrees Celsius (°C).
         timestamp: Unix timestamp when the data was received.
     """
 
-    temperatures: tuple
+    temperatures: L6Temperature
     timestamp: float
 
 
@@ -281,11 +283,14 @@ class TemperatureManager:
             return
 
         # Parse temperature data (skip first byte which is the command)
-        temperatures = tuple(msg.data[1:])
+        raw_temperatures = list(msg.data[1:])
 
         # Validate temperature count (should be 6 temperatures)
-        if len(temperatures) != self._TEMPERATURE_COUNT:
+        if len(raw_temperatures) != self._TEMPERATURE_COUNT:
             return
+
+        # Convert from raw CAN format (0-255) to L6Temperature (degrees Celsius)
+        temperatures = L6Temperature.from_raw(raw_temperatures)
 
         # Create immutable temperature data
         temp_data = TemperatureData(temperatures=temperatures, timestamp=time.time())

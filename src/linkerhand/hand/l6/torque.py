@@ -15,23 +15,19 @@ from linkerhand.comm import CANMessageDispatcher
 from linkerhand.exceptions import StateError, TimeoutError, ValidationError
 from linkerhand.queue import IterableQueue
 
+from .types import L6Torque
+
 
 @dataclass(frozen=True)
 class TorqueData:
     """Immutable torque data container.
 
     Attributes:
-        torques: Tuple of joint torques (6 values).
-            - torques[0]: Thumb flexion joint torque, range 0x00-0xFF (0-255)
-            - torques[1]: Thumb abduction joint torque, range 0x00-0xFF (0-255)
-            - torques[2]: Index finger flexion joint torque, range 0x00-0xFF (0-255)
-            - torques[3]: Middle finger flexion joint torque, range 0x00-0xFF (0-255)
-            - torques[4]: Ring finger flexion joint torque, range 0x00-0xFF (0-255)
-            - torques[5]: Pinky finger flexion joint torque, range 0x00-0xFF (0-255)
+        torques: L6Torque instance containing joint torques (0-100 range).
         timestamp: Unix timestamp when the data was received.
     """
 
-    torques: tuple
+    torques: L6Torque
     timestamp: float
 
 
@@ -89,7 +85,7 @@ class TorqueManager:
         self._streaming_timer: threading.Thread | None = None
         self._streaming_interval_ms: float | None = None
 
-    def set_torques(self, torques: tuple[int, ...] | list[int]) -> None:
+    def set_torques(self, torques: L6Torque | list[float]) -> None:
         """Send target torques to the robotic hand.
 
         This method sends 6 target torques to the hand. The hand will respond
@@ -97,36 +93,47 @@ class TorqueManager:
         retrieved via get_current_torques().
 
         Args:
-            torques: Tuple or list of 6 target torques (range 0-255 each).
+            torques: L6Torque instance or list of 6 target torques (range 0-100 each).
 
         Raises:
             ValidationError: If torques count is not 6 or values are out of range.
 
         Example:
             >>> manager = TorqueManager(arbitration_id, dispatcher)
-            >>> manager.set_torques((100, 150, 200, 180, 160, 140))
+            >>> # Using L6Torque instance
+            >>> manager.set_torques(L6Torque(thumb_flex=50.0, thumb_abd=30.0,
+            ...                              index=60.0, middle=60.0, ring=60.0, pinky=60.0))
+            >>> # Using list
+            >>> manager.set_torques([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
             >>> time.sleep(0.1)  # Wait for response
             >>> current = manager.get_current_torques()
             >>> if current:
-            ...     print(f"Current torques: {current[0]}")
+            ...     print(f"Current torques: {current.torques.thumb_flex}")
         """
-        # Validate input
-        if len(torques) != self._TORQUE_COUNT:
-            raise ValidationError(
-                f"Expected {self._TORQUE_COUNT} torques, got {len(torques)}"
-            )
-
-        # Validate torque values (0-255 range for CAN byte encoding)
-        for i, torque in enumerate(torques):
-            if not isinstance(torque, int):
-                raise ValidationError(f"Torque {i} must be int, got {type(torque)}")
-            if not 0 <= torque <= 255:
+        # Convert to raw CAN format (0-255)
+        if isinstance(torques, L6Torque):
+            raw_torques = torques.to_raw()
+        elif isinstance(torques, list):
+            # Validate input
+            if len(torques) != self._TORQUE_COUNT:
                 raise ValidationError(
-                    f"Torque {i} value {torque} out of range [0, 255]"
+                    f"Expected {self._TORQUE_COUNT} torques, got {len(torques)}"
                 )
+            # Validate torque values (0-100 range)
+            for i, torque in enumerate(torques):
+                if not isinstance(torque, float):
+                    raise ValidationError(
+                        f"Torque {i} must be float, got {type(torque)}"
+                    )
+                if not 0 <= torque <= 100:
+                    raise ValidationError(
+                        f"Torque {i} value {torque} out of range [0, 100]"
+                    )
+            # Convert to raw CAN format
+            raw_torques = L6Torque.from_list(torques).to_raw()
 
         # Build and send CAN message
-        data = [self._CONTROL_CMD, *torques]
+        data = [self._CONTROL_CMD, *raw_torques]
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=data,
@@ -332,11 +339,14 @@ class TorqueManager:
             return
 
         # Parse torque data (skip first byte which is the command)
-        torques = tuple(msg.data[1:])
+        raw_torques = list(msg.data[1:])
 
         # Validate torque count (should be 6 torques)
-        if len(torques) != self._TORQUE_COUNT:
+        if len(raw_torques) != self._TORQUE_COUNT:
             return
+
+        # Convert from raw CAN format (0-255) to L6Torque (0-100)
+        torques = L6Torque.from_raw(raw_torques)
 
         # Create immutable torque data
         torque_data = TorqueData(torques=torques, timestamp=time.time())

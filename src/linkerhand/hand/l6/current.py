@@ -15,17 +15,19 @@ from linkerhand.comm import CANMessageDispatcher
 from linkerhand.exceptions import StateError, TimeoutError, ValidationError
 from linkerhand.queue import IterableQueue
 
+from .types import L6Current
+
 
 @dataclass(frozen=True)
 class CurrentData:
     """Immutable current data container.
 
     Attributes:
-        currents: Tuple of motor currents (6 values, range 0-255).
+        currents: L6Current instance containing motor currents in milliamps (mA).
         timestamp: Unix timestamp when the data was received.
     """
 
-    currents: tuple
+    currents: L6Current
     timestamp: float
 
 
@@ -269,11 +271,14 @@ class CurrentManager:
             return
 
         # Parse current data (skip first byte which is the command)
-        currents = tuple(msg.data[1:])
+        raw_currents = list(msg.data[1:])
 
         # Validate current count (should be 6 currents)
-        if len(currents) != self._CURRENT_COUNT:
+        if len(raw_currents) != self._CURRENT_COUNT:
             return
+
+        # Convert from raw CAN format (0-255) to L6Current (milliamps)
+        currents = L6Current.from_raw(raw_currents)
 
         # Create immutable current data
         current_data = CurrentData(currents=currents, timestamp=time.time())

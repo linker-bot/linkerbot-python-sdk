@@ -15,17 +15,19 @@ from linkerhand.comm import CANMessageDispatcher
 from linkerhand.exceptions import StateError, TimeoutError, ValidationError
 from linkerhand.queue import IterableQueue
 
+from .types import L6Angle
+
 
 @dataclass(frozen=True)
 class AngleData:
     """Immutable angle data container.
 
     Attributes:
-        angles: Tuple of joint angles (6 values).
+        angles: L6Angle instance containing joint angles (0-100 range).
         timestamp: Unix timestamp when the data was received.
     """
 
-    angles: tuple
+    angles: L6Angle
     timestamp: float
 
 
@@ -83,7 +85,7 @@ class AngleManager:
         self._streaming_timer: threading.Thread | None = None
         self._streaming_interval_ms: float | None = None
 
-    def set_angles(self, angles: tuple[int, ...] | list[int]) -> None:
+    def set_angles(self, angles: L6Angle | list[float]) -> None:
         """Send target angles to the robotic hand.
 
         This method sends 6 target angles to the hand. The hand will respond
@@ -91,34 +93,45 @@ class AngleManager:
         retrieved via get_current_angles().
 
         Args:
-            angles: Tuple or list of 6 target angles (range 0-255 each).
+            angles: L6Angle instance or list of 6 target angles (range 0-100 each).
 
         Raises:
             ValidationError: If angles count is not 6 or values are out of range.
 
         Example:
             >>> manager = AngleManager(arbitration_id, dispatcher)
-            >>> manager.set_angles((10, 20, 30, 40, 50, 60))
+            >>> # Using L6Angle instance
+            >>> manager.set_angles(L6Angle(thumb_flex=50.0, thumb_abd=30.0,
+            ...                            index=60.0, middle=60.0, ring=60.0, pinky=60.0))
+            >>> # Using list
+            >>> manager.set_angles([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
             >>> time.sleep(0.1)  # Wait for response
             >>> current = manager.get_current_angles()
             >>> if current:
-            ...     print(f"Current angles: {current[0]}")
+            ...     print(f"Current angles: {current.angles.thumb_flex}")
         """
-        # Validate input
-        if len(angles) != self._ANGLE_COUNT:
-            raise ValidationError(
-                f"Expected {self._ANGLE_COUNT} angles, got {len(angles)}"
-            )
-
-        # Validate angle values (0-255 range for CAN byte encoding)
-        for i, angle in enumerate(angles):
-            if not isinstance(angle, int):
-                raise ValidationError(f"Angle {i} must be int, got {type(angle)}")
-            if not 0 <= angle <= 255:
-                raise ValidationError(f"Angle {i} value {angle} out of range [0, 255]")
+        # Convert to raw CAN format (0-255)
+        if isinstance(angles, L6Angle):
+            raw_angles = angles.to_raw()
+        elif isinstance(angles, list):
+            # Validate input
+            if len(angles) != self._ANGLE_COUNT:
+                raise ValidationError(
+                    f"Expected {self._ANGLE_COUNT} angles, got {len(angles)}"
+                )
+            # Validate angle values (0-100 range)
+            for i, angle in enumerate(angles):
+                if not isinstance(angle, float):
+                    raise ValidationError(f"Angle {i} must be float, got {type(angle)}")
+                if not 0 <= angle <= 100:
+                    raise ValidationError(
+                        f"Angle {i} value {angle} out of range [0, 100]"
+                    )
+            # Convert to raw CAN format
+            raw_angles = L6Angle.from_list(angles).to_raw()
 
         # Build and send CAN message
-        data = [self._CONTROL_CMD, *angles]
+        data = [self._CONTROL_CMD, *raw_angles]
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=data,
@@ -324,11 +337,14 @@ class AngleManager:
             return
 
         # Parse angle data (skip first byte which is the command)
-        angles = tuple(msg.data[1:])
+        raw_angles = list(msg.data[1:])
 
         # Validate angle count (should be 6 angles)
-        if len(angles) != self._ANGLE_COUNT:
+        if len(raw_angles) != self._ANGLE_COUNT:
             return
+
+        # Convert from raw CAN format (0-255) to L6Angle (0-100)
+        angles = L6Angle.from_raw(raw_angles)
 
         # Create immutable angle data
         angle_data = AngleData(angles=angles, timestamp=time.time())

@@ -9,6 +9,8 @@ import can
 from linkerhand.comm import CANMessageDispatcher
 from linkerhand.exceptions import ValidationError
 
+from .types import L6Speed
+
 
 class SpeedManager:
     """Manager for motor speed control via CAN bus.
@@ -38,36 +40,47 @@ class SpeedManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
 
-    def set_speeds(self, speeds: tuple[int, ...] | list[int]) -> None:
+    def set_speeds(self, speeds: L6Speed | list[float]) -> None:
         """Send target speeds to the robotic hand motors.
 
         This method sends 6 target speeds to the hand.
 
         Args:
-            speeds: Tuple or list of 6 target speeds (range 0-255).
+            speeds: L6Speed instance or list of 6 target speeds (range 0-100 each).
 
         Raises:
             ValidationError: If speeds count is not 6 or values are out of range.
 
         Example:
             >>> manager = SpeedManager(arbitration_id, dispatcher)
-            >>> manager.set_speeds((100, 100, 100, 100, 100, 100))
+            >>> # Using L6Speed instance
+            >>> manager.set_speeds(L6Speed(thumb_flex=50.0, thumb_abd=50.0,
+            ...                            index=50.0, middle=50.0, ring=50.0, pinky=50.0))
+            >>> # Using list
+            >>> manager.set_speeds([50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
         """
-        # Validate input
-        if len(speeds) != self._SPEED_COUNT:
-            raise ValidationError(
-                f"Expected {self._SPEED_COUNT} speeds, got {len(speeds)}"
-            )
-
-        # Validate speed values (0-255 range for CAN byte encoding)
-        for i, speed in enumerate(speeds):
-            if not isinstance(speed, int):
-                raise ValidationError(f"Speed {i} must be int, got {type(speed)}")
-            if not 0 <= speed <= 255:
-                raise ValidationError(f"Speed {i} value {speed} out of range [0, 255]")
+        # Convert to raw CAN format (0-255)
+        if isinstance(speeds, L6Speed):
+            raw_speeds = speeds.to_raw()
+        elif isinstance(speeds, list):
+            # Validate input
+            if len(speeds) != self._SPEED_COUNT:
+                raise ValidationError(
+                    f"Expected {self._SPEED_COUNT} speeds, got {len(speeds)}"
+                )
+            # Validate speed values (0-100 range)
+            for i, speed in enumerate(speeds):
+                if not isinstance(speed, float):
+                    raise ValidationError(f"Speed {i} must be float, got {type(speed)}")
+                if not 0 <= speed <= 100:
+                    raise ValidationError(
+                        f"Speed {i} value {speed} out of range [0, 100]"
+                    )
+            # Convert to raw CAN format
+            raw_speeds = L6Speed.from_list(speeds).to_raw()
 
         # Build and send CAN message
-        data = [self._CONTROL_CMD, *speeds]
+        data = [self._CONTROL_CMD, *raw_speeds]
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=data,

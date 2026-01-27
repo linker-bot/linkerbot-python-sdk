@@ -11,6 +11,7 @@ from .force_sensor import ForceSensorData, ForceSensorManager
 from .l6 import L6
 from .temperature import TemperatureData, TemperatureManager
 from .torque import TorqueData
+from .types import L6Angle, L6Current, L6Speed, L6Temperature, L6Torque
 
 __all__ = [
     "L6",
@@ -23,4 +24,9 @@ __all__ = [
     "CurrentData",
     "CurrentManager",
     "FaultManager",
+    "L6Angle",
+    "L6Torque",
+    "L6Speed",
+    "L6Temperature",
+    "L6Current",
 ]
