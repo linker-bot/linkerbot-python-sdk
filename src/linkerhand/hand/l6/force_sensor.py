@@ -2,12 +2,8 @@
 
 This module provides force sensor management for the L6 robotic hand:
 
-- SingleForceSensorManager: Manages a single finger's force sensor (requires command_prefix).
+- SingleForceSensorManager: Manages a single finger's force sensor.
 - ForceSensorManager: Manages all 5 fingers' force sensors (thumb, index, middle, ring, pinky).
-
-Each finger has a unique command prefix (0xB1-0xB5) for CAN bus communication.
-Force sensor data is transmitted across 12 CAN frames, each containing 6 bytes,
-for a total of 72 bytes per finger.
 """
 
 import queue
@@ -57,52 +53,19 @@ class AllFingersData:
 
 @dataclass(frozen=True)
 class FrameBatch:
-    """Immutable batch of CAN message frames for assembling complete sensor data.
-
-    Force sensor data is transmitted across 12 CAN frames, each containing 6 bytes.
-    This class accumulates frames and assembles them into complete ForceSensorData.
-
-    Attributes:
-        frames: Mapping from frame index (0-11) to 6-byte data payload.
-        started_at: Unix timestamp when the first frame of this batch was received.
-    """
+    """Internal helper for accumulating sensor data frames."""
 
     frames: Mapping[int, bytes] = field(default_factory=dict)
     started_at: float = field(default_factory=time.time)
 
     def add_frame(self, frame_id: int, data: bytes) -> "FrameBatch":
-        """Create a new FrameBatch with an additional frame.
-
-        Args:
-            frame_id: Frame index (0-11).
-            data: 6-byte frame payload.
-
-        Returns:
-            New FrameBatch instance with the added frame.
-
-        Note:
-            This method does not modify the current instance (immutable pattern).
-        """
         new_frames = {**self.frames, frame_id: data}
         return FrameBatch(frames=new_frames, started_at=self.started_at)
 
     def is_complete(self) -> bool:
-        """Check if all 12 frames have been received.
-
-        Returns:
-            True if all frames (0-11) are present, False otherwise.
-        """
         return len(self.frames) == 12
 
     def assemble(self) -> ForceSensorData:
-        """Assemble the complete 72-byte force sensor data.
-
-        Returns:
-            ForceSensorData instance with all 72 bytes assembled.
-
-        Raises:
-            KeyError: If any frame index (0-11) is missing.
-        """
         data = bytearray(72)
         for i in range(12):
             data[i * 6 : (i + 1) * 6] = self.frames[i]
@@ -110,28 +73,14 @@ class FrameBatch:
 
 
 class SingleForceSensorManager:
-    """Manager for a single finger's force sensor data acquisition via CAN bus.
+    """Manager for a single finger's force sensor data acquisition.
 
-    This class handles multi-frame force sensor data acquisition with three access modes:
+    This class provides three access modes for force sensor operations:
     1. Blocking mode: get_data_blocking() - wait for next complete data with timeout
     2. Streaming mode: stream() - continuous polling with Queue-based delivery
     3. Cache mode: get_latest_data() - non-blocking read of most recent data
-
-    The manager uses an immutable data design for thread-safe operation without locks
-    for data access. All CAN message processing happens in the dispatcher's thread.
-
-    Attributes:
-        _dispatcher: CAN message dispatcher for send/receive operations.
-        _frame_batch: Current batch of frames being assembled (or None).
-        _latest_data: Most recently assembled complete sensor data (or None).
-        _blocking_waiters: List of (event, result_holder) for blocking callers.
-        _waiters_lock: Lock protecting the blocking waiters list.
-        _streaming_queue: Queue for streaming mode data delivery (or None if not streaming).
-        _streaming_timer: Background thread for periodic requests (or None).
-        _streaming_interval_ms: Interval in milliseconds for streaming requests.
     """
 
-    # CAN protocol constants
     _FRAME_COUNT = 12
     _BYTES_PER_FRAME = 6
 
@@ -146,7 +95,7 @@ class SingleForceSensorManager:
         Args:
             arbitration_id: Arbitration ID for the force sensor requests.
             dispatcher: CAN message dispatcher to use for communication.
-            command_prefix: Command prefix for the sensor (e.g., 0xB1-0xB5 for fingers).
+            command_prefix: Command prefix for the sensor.
         """
         self._arbitration_id = arbitration_id
         self._command_prefix = command_prefix
@@ -323,10 +272,6 @@ class SingleForceSensorManager:
         return self._latest_data
 
     def _send_request(self) -> None:
-        """Send a force sensor data request via CAN bus.
-
-        Sends a CAN message with the configured arbitration_id and command.
-        """
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=self._request_cmd,
@@ -335,11 +280,6 @@ class SingleForceSensorManager:
         self._dispatcher.send(msg)
 
     def _streaming_loop(self) -> None:
-        """Background thread loop for streaming mode.
-
-        Periodically sends sensor data requests at the configured interval.
-        The loop continues until _streaming_timer is set to None by stop_streaming().
-        """
         if self._streaming_interval_ms is None:
             raise StateError("Streaming is not active. Call stream() first.")
         while self._streaming_timer is not None:
@@ -347,18 +287,6 @@ class SingleForceSensorManager:
             time.sleep(self._streaming_interval_ms / 1000.0)
 
     def _on_message(self, msg: can.Message) -> None:
-        """Handle incoming CAN messages (callback from dispatcher thread).
-
-        Filters for force sensor response frames, assembles them into complete
-        data, and dispatches complete data to all waiting consumers.
-
-        Args:
-            msg: CAN message from the bus.
-
-        Note:
-            This method executes in the dispatcher's receive thread and must
-            return quickly to avoid blocking message reception.
-        """
         # Filter: only process messages with correct arbitration ID
         if msg.arbitration_id != self._arbitration_id:
             return
@@ -368,7 +296,6 @@ class SingleForceSensorManager:
             return
 
         # Extract frame information
-        # Frame index is encoded in high 4 bits: 0x00, 0x10, 0x20, ..., 0xB0
         frame_idx = msg.data[1] >> 4  # Extract high nibble: 0-11
         frame_data = bytes(msg.data[2:8])  # 6 bytes of payload
 
@@ -384,44 +311,25 @@ class SingleForceSensorManager:
 
         # Check if we have all frames
         if self._frame_batch.is_complete():
-            # Assemble complete data
             complete_data = self._frame_batch.assemble()
-
-            # Reset batch for next set of frames
             self._frame_batch = None
-
-            # Dispatch to all consumers
             self._on_complete_data(complete_data)
 
     def _on_complete_data(self, data: ForceSensorData) -> None:
-        """Handle complete sensor data by dispatching to all consumers.
-
-        This method:
-        1. Updates the cached latest data
-        2. Wakes up all blocking waiters
-        3. Pushes data to the streaming queue (if active)
-
-        Args:
-            data: Complete force sensor data to distribute.
-
-        Note:
-            This method executes in the dispatcher's receive thread.
-        """
-        # 1. Update cache (atomic reference assignment)
+        # Update cache
         self._latest_data = data
 
-        # 2. Wake up all blocking waiters
+        # Wake up all blocking waiters
         with self._waiters_lock:
             for event, result_holder in self._blocking_waiters:
                 result_holder["data"] = data
                 event.set()
             self._blocking_waiters.clear()
 
-        # 3. Push to streaming queue if active
+        # Push to streaming queue if active
         if self._streaming_queue is None:
             return
         try:
-            # Non-blocking put
             self._streaming_queue.put_nowait(data)
         except queue.Full:
             # Queue full - remove oldest and try again
@@ -436,26 +344,9 @@ class ForceSensorManager:
     """Manager for all finger force sensors on the L6 robotic hand.
 
     This class manages force sensors for all 5 fingers (thumb, index, middle, ring, pinky)
-    by coordinating multiple SingleForceSensorManager instances. It provides unified access
-    to all finger sensor data.
-
-    Each finger has a unique command prefix:
-    - Thumb: 0xB1
-    - Index: 0xB2
-    - Middle: 0xB3
-    - Ring: 0xB4
-    - Pinky: 0xB5
-
-    Attributes:
-        _arbitration_id: CAN arbitration ID for sensor communication.
-        _dispatcher: CAN message dispatcher shared by all finger sensors.
-        _fingers: Dictionary mapping finger names to their SingleForceSensorManager instances.
-        _streaming_queue: Unified queue for delivering aggregated data (all fingers).
-        _aggregation_thread: Background thread for aggregating data from finger queues.
-        _finger_queues: Individual queues from each finger's streaming mode.
+    and provides unified access to sensor data from all fingers.
     """
 
-    # Finger command prefix mapping
     FINGER_COMMANDS = {
         "thumb": 0xB1,
         "index": 0xB2,
@@ -622,29 +513,18 @@ class ForceSensorManager:
         self._finger_queues = None
 
     def _aggregation_loop(self) -> None:
-        """Background thread loop for aggregating data from all finger queues.
-
-        Uses a thread pool to concurrently wait for data from all 5 finger queues.
-        When all fingers provide data, combines them into a complete snapshot and
-        pushes to the unified queue. This continues until stop_streaming() is called.
-        """
         if self._finger_queues is None:
             raise StateError("Streaming is not active. Call stream() first.")
 
-        # Intermediate queue for collecting data from all fingers
-        # Each item is (finger_name, ForceSensorData)
         intermediate_queue: queue.Queue = queue.Queue()
 
         def read_finger_queue(
             finger_name: str, finger_queue: IterableQueue[ForceSensorData]
         ) -> None:
-            """Thread worker to read from a single finger queue and forward to intermediate queue."""
             try:
                 for data in finger_queue:
-                    # Forward data with finger name to intermediate queue
                     intermediate_queue.put((finger_name, data))
             except StopIteration:
-                # Queue was closed, exit gracefully
                 return
 
         # Start a thread for each finger to concurrently wait for data

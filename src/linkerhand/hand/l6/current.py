@@ -32,30 +32,14 @@ class CurrentData:
 
 
 class CurrentManager:
-    """Manager for motor current sensing via CAN bus.
+    """Manager for motor current sensing.
 
-    This class handles current operations with three access modes:
+    This class provides three access modes for current operations:
     1. Blocking mode: get_currents_blocking() - request and wait for 6 currents
     2. Streaming mode: stream() - continuous polling with Queue-based delivery
     3. Cache reading: get_current_currents() - non-blocking read of cached currents
-
-    The manager uses an immutable data design for thread-safe operation without locks
-    for data access. All CAN message processing happens in the dispatcher's thread.
-
-    CAN Protocol:
-        - Sensing: Send [0x36] -> Receive [0x36, current1...current6]
-
-    Attributes:
-        _dispatcher: CAN message dispatcher for send/receive operations.
-        _latest_data: Most recently received current data (or None).
-        _blocking_waiters: List of (event, result_holder) for blocking callers.
-        _waiters_lock: Lock protecting the blocking waiters list.
-        _streaming_queue: Queue for streaming mode data delivery (or None if not streaming).
-        _streaming_timer: Background thread for periodic requests (or None).
-        _streaming_interval_ms: Interval in milliseconds for streaming requests.
     """
 
-    # CAN protocol constants
     _SENSE_CMD = 0x36
     _SENSE_CMD_DATA = [0x36]
     _CURRENT_COUNT = 6
@@ -227,10 +211,6 @@ class CurrentManager:
         self._streaming_interval_ms = None
 
     def _send_sense_request(self) -> None:
-        """Send a current sensing request via CAN bus.
-
-        Sends a CAN message with data=[0x36] to request current currents.
-        """
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=self._SENSE_CMD_DATA,
@@ -239,11 +219,6 @@ class CurrentManager:
         self._dispatcher.send(msg)
 
     def _streaming_loop(self) -> None:
-        """Background thread loop for streaming mode.
-
-        Periodically sends current sensing requests at the configured interval.
-        The loop continues until _streaming_timer is set to None by stop_streaming().
-        """
         if self._streaming_interval_ms is None:
             raise StateError("Streaming is not active. Call stream() first.")
         while self._streaming_timer is not None:
@@ -251,17 +226,6 @@ class CurrentManager:
             time.sleep(self._streaming_interval_ms / 1000.0)
 
     def _on_message(self, msg: can.Message) -> None:
-        """Handle incoming CAN messages (callback from dispatcher thread).
-
-        Filters for current response messages and updates cache or wakes waiters.
-
-        Args:
-            msg: CAN message from the bus.
-
-        Note:
-            This method executes in the dispatcher's receive thread and must
-            return quickly to avoid blocking message reception.
-        """
         # Filter: only process messages with correct arbitration ID
         if msg.arbitration_id != self._arbitration_id:
             return
@@ -277,44 +241,25 @@ class CurrentManager:
         if len(raw_currents) != self._CURRENT_COUNT:
             return
 
-        # Convert from raw CAN format (0-255) to L6Current (milliamps)
         currents = L6Current.from_raw(raw_currents)
-
-        # Create immutable current data
         current_data = CurrentData(currents=currents, timestamp=time.time())
-
-        # Dispatch to all consumers
         self._on_complete_data(current_data)
 
     def _on_complete_data(self, data: CurrentData) -> None:
-        """Handle complete current data by dispatching to all consumers.
-
-        This method:
-        1. Updates the cached latest data
-        2. Wakes up all blocking waiters
-        3. Pushes data to the streaming queue (if active)
-
-        Args:
-            data: Complete current data to distribute.
-
-        Note:
-            This method executes in the dispatcher's receive thread.
-        """
-        # 1. Update cache (atomic reference assignment)
+        # Update cache
         self._latest_data = data
 
-        # 2. Wake up all blocking waiters
+        # Wake up all blocking waiters
         with self._waiters_lock:
             for event, result_holder in self._blocking_waiters:
                 result_holder["data"] = data
                 event.set()
             self._blocking_waiters.clear()
 
-        # 3. Push to streaming queue if active
+        # Push to streaming queue if active
         if self._streaming_queue is None:
             return
         try:
-            # Non-blocking put
             self._streaming_queue.put_nowait(data)
         except queue.Full:
             # Queue full - remove oldest and try again

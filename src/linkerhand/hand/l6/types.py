@@ -43,11 +43,7 @@ class L6Angle:
         ]
 
     def to_raw(self) -> list[int]:
-        """Convert to raw CAN protocol format (0-255).
-
-        Returns:
-            List of 6 integers in 0-255 range for CAN communication
-        """
+        # Internal: Convert to hardware communication format
         return [int(v * 255 / 100) for v in self.to_list()]
 
     @classmethod
@@ -76,17 +72,7 @@ class L6Angle:
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6Angle":
-        """Construct from raw CAN protocol format (0-255).
-
-        Args:
-            values: List of 6 integers in 0-255 range
-
-        Returns:
-            L6Angle instance with values converted to 0-100 range
-
-        Raises:
-            ValueError: If list doesn't have exactly 6 elements
-        """
+        # Internal: Construct from hardware communication format
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
         normalized = [v * 100 / 255 for v in values]
@@ -147,11 +133,7 @@ class L6Torque:
         ]
 
     def to_raw(self) -> list[int]:
-        """Convert to raw CAN protocol format (0-255).
-
-        Returns:
-            List of 6 integers in 0-255 range for CAN communication
-        """
+        # Internal: Convert to hardware communication format
         return [int(v * 255 / 100) for v in self.to_list()]
 
     @classmethod
@@ -180,17 +162,7 @@ class L6Torque:
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6Torque":
-        """Construct from raw CAN protocol format (0-255).
-
-        Args:
-            values: List of 6 integers in 0-255 range
-
-        Returns:
-            L6Torque instance with values converted to 0-100 range
-
-        Raises:
-            ValueError: If list doesn't have exactly 6 elements
-        """
+        # Internal: Construct from hardware communication format
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
         normalized = [v * 100 / 255 for v in values]
@@ -251,11 +223,7 @@ class L6Speed:
         ]
 
     def to_raw(self) -> list[int]:
-        """Convert to raw CAN protocol format (0-255).
-
-        Returns:
-            List of 6 integers in 0-255 range for CAN communication
-        """
+        # Internal: Convert to hardware communication format
         return [int(v * 255 / 100) for v in self.to_list()]
 
     @classmethod
@@ -284,17 +252,7 @@ class L6Speed:
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6Speed":
-        """Construct from raw CAN protocol format (0-255).
-
-        Args:
-            values: List of 6 integers in 0-255 range
-
-        Returns:
-            L6Speed instance with values converted to 0-100 range
-
-        Raises:
-            ValueError: If list doesn't have exactly 6 elements
-        """
+        # Internal: Construct from hardware communication format
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
         normalized = [v * 100 / 255 for v in values]
@@ -322,9 +280,6 @@ class L6Speed:
 @dataclass
 class L6Temperature:
     """Motor temperatures for L6 hand in degrees Celsius (°C).
-
-    All values represent actual motor temperature in degrees Celsius.
-    CAN protocol values (0-255) directly correspond to temperature in °C.
 
     Attributes:
         thumb_flex: Thumb flexion motor temperature in °C
@@ -358,13 +313,7 @@ class L6Temperature:
         ]
 
     def to_raw(self) -> list[int]:
-        """Convert to raw CAN protocol format (0-255).
-
-        Temperature in °C is directly converted to integer for CAN communication.
-
-        Returns:
-            List of 6 integers in 0-255 range for CAN communication
-        """
+        # Internal: Convert to hardware communication format
         return [int(v) for v in self.to_list()]
 
     @classmethod
@@ -393,22 +342,9 @@ class L6Temperature:
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6Temperature":
-        """Construct from raw CAN protocol format (0-255).
-
-        CAN values directly represent temperature in degrees Celsius.
-
-        Args:
-            values: List of 6 integers in 0-255 range (representing °C)
-
-        Returns:
-            L6Temperature instance with temperatures in °C
-
-        Raises:
-            ValueError: If list doesn't have exactly 6 elements
-        """
+        # Internal: Construct from hardware communication format
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
-        # CAN values directly represent temperature in Celsius
         temperatures_celsius = [float(v) for v in values]
         return cls.from_list(temperatures_celsius)
 
@@ -434,9 +370,6 @@ class L6Temperature:
 @dataclass
 class L6Current:
     """Motor currents for L6 hand in milliamps (mA).
-
-    All values represent actual motor current in milliamps.
-    Conversion from CAN protocol: current_mA = (CAN_value × 1400) ÷ 255
 
     Attributes:
         thumb_flex: Thumb flexion motor current in mA
@@ -470,13 +403,7 @@ class L6Current:
         ]
 
     def to_raw(self) -> list[int]:
-        """Convert to raw CAN protocol format (0-255).
-
-        Conversion formula: CAN_value = (current_mA × 255) ÷ 1400
-
-        Returns:
-            List of 6 integers in 0-255 range for CAN communication
-        """
+        # Internal: Convert to hardware communication format
         return [int(v * 255 / 1400) for v in self.to_list()]
 
     @classmethod
@@ -505,19 +432,7 @@ class L6Current:
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6Current":
-        """Construct from raw CAN protocol format (0-255).
-
-        Conversion formula: current_mA = (CAN_value × 1400) ÷ 255
-
-        Args:
-            values: List of 6 integers in 0-255 range
-
-        Returns:
-            L6Current instance with values converted to milliamps
-
-        Raises:
-            ValueError: If list doesn't have exactly 6 elements
-        """
+        # Internal: Construct from hardware communication format
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
         currents_mA = [v * 1400 / 255 for v in values]

@@ -32,32 +32,15 @@ class TorqueData:
 
 
 class TorqueManager:
-    """Manager for joint torque control and sensing via CAN bus.
+    """Manager for joint torque control and sensing.
 
-    This class handles torque operations with four access modes:
+    This class provides four access modes for torque operations:
     1. Torque control: set_torques() - send 6 target torques and cache response
     2. Blocking mode: get_torques_blocking() - request and wait for 6 current torques
     3. Streaming mode: stream() - continuous polling with Queue-based delivery
     4. Cache reading: get_current_torques() - non-blocking read of cached torques
-
-    The manager uses an immutable data design for thread-safe operation without locks
-    for data access. All CAN message processing happens in the dispatcher's thread.
-
-    CAN Protocol:
-        - Control: Send [0x02, torque1...torque6] -> Receive [0x02, current1...current6]
-        - Sensing: Send [0x02] -> Receive [0x02, torque1...torque6]
-
-    Attributes:
-        _dispatcher: CAN message dispatcher for send/receive operations.
-        _latest_data: Most recently received torque data (or None).
-        _blocking_waiters: List of (event, result_holder) for blocking callers.
-        _waiters_lock: Lock protecting the blocking waiters list.
-        _streaming_queue: Queue for streaming mode data delivery (or None if not streaming).
-        _streaming_timer: Background thread for periodic requests (or None).
-        _streaming_interval_ms: Interval in milliseconds for streaming requests.
     """
 
-    # CAN protocol constants
     _CONTROL_CMD = 0x02
     _SENSE_CMD = [0x02]
     _TORQUE_COUNT = 6
@@ -110,7 +93,6 @@ class TorqueManager:
             >>> if current:
             ...     print(f"Current torques: {current.torques.thumb_flex}")
         """
-        # Convert to raw CAN format (0-255)
         if isinstance(torques, L6Torque):
             raw_torques = torques.to_raw()
         elif isinstance(torques, list):
@@ -129,10 +111,9 @@ class TorqueManager:
                     raise ValidationError(
                         f"Torque {i} value {torque} out of range [0, 100]"
                     )
-            # Convert to raw CAN format
             raw_torques = L6Torque.from_list(torques).to_raw()
 
-        # Build and send CAN message
+        # Build and send message
         data = [self._CONTROL_CMD, *raw_torques]
         msg = can.Message(
             arbitration_id=self._arbitration_id,
@@ -295,10 +276,6 @@ class TorqueManager:
         self._streaming_interval_ms = None
 
     def _send_sense_request(self) -> None:
-        """Send a torque sensing request via CAN bus.
-
-        Sends a CAN message with data=[0x02] to request current torques.
-        """
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=self._SENSE_CMD,
@@ -307,11 +284,6 @@ class TorqueManager:
         self._dispatcher.send(msg)
 
     def _streaming_loop(self) -> None:
-        """Background thread loop for streaming mode.
-
-        Periodically sends torque sensing requests at the configured interval.
-        The loop continues until _streaming_timer is set to None by stop_streaming().
-        """
         if self._streaming_interval_ms is None:
             raise StateError("Streaming is not active. Call stream() first.")
         while self._streaming_timer is not None:
@@ -319,17 +291,6 @@ class TorqueManager:
             time.sleep(self._streaming_interval_ms / 1000.0)
 
     def _on_message(self, msg: can.Message) -> None:
-        """Handle incoming CAN messages (callback from dispatcher thread).
-
-        Filters for torque response messages and updates cache or wakes waiters.
-
-        Args:
-            msg: CAN message from the bus.
-
-        Note:
-            This method executes in the dispatcher's receive thread and must
-            return quickly to avoid blocking message reception.
-        """
         # Filter: only process messages with correct arbitration ID
         if msg.arbitration_id != self._arbitration_id:
             return
@@ -345,44 +306,25 @@ class TorqueManager:
         if len(raw_torques) != self._TORQUE_COUNT:
             return
 
-        # Convert from raw CAN format (0-255) to L6Torque (0-100)
         torques = L6Torque.from_raw(raw_torques)
-
-        # Create immutable torque data
         torque_data = TorqueData(torques=torques, timestamp=time.time())
-
-        # Dispatch to all consumers
         self._on_complete_data(torque_data)
 
     def _on_complete_data(self, data: TorqueData) -> None:
-        """Handle complete torque data by dispatching to all consumers.
-
-        This method:
-        1. Updates the cached latest data
-        2. Wakes up all blocking waiters
-        3. Pushes data to the streaming queue (if active)
-
-        Args:
-            data: Complete torque data to distribute.
-
-        Note:
-            This method executes in the dispatcher's receive thread.
-        """
-        # 1. Update cache (atomic reference assignment)
+        # Update cache
         self._latest_data = data
 
-        # 2. Wake up all blocking waiters
+        # Wake up all blocking waiters
         with self._waiters_lock:
             for event, result_holder in self._blocking_waiters:
                 result_holder["data"] = data
                 event.set()
             self._blocking_waiters.clear()
 
-        # 3. Push to streaming queue if active
+        # Push to streaming queue if active
         if self._streaming_queue is None:
             return
         try:
-            # Non-blocking put
             self._streaming_queue.put_nowait(data)
         except queue.Full:
             # Queue full - remove oldest and try again

@@ -32,32 +32,15 @@ class AngleData:
 
 
 class AngleManager:
-    """Manager for joint angle control and sensing via CAN bus.
+    """Manager for joint angle control and sensing.
 
-    This class handles angle operations with four access modes:
+    This class provides four access modes for angle operations:
     1. Angle control: set_angles() - send 6 target angles and cache response
     2. Blocking mode: get_angles_blocking() - request and wait for 6 current angles
     3. Streaming mode: stream() - continuous polling with Queue-based delivery
     4. Cache reading: get_current_angles() - non-blocking read of cached angles
-
-    The manager uses an immutable data design for thread-safe operation without locks
-    for data access. All CAN message processing happens in the dispatcher's thread.
-
-    CAN Protocol:
-        - Control: Send [0x01, angle1...angle6] -> Receive [0x01, current1...current6]
-        - Sensing: Send [0x01] -> Receive [0x01, angle1...angle6]
-
-    Attributes:
-        _dispatcher: CAN message dispatcher for send/receive operations.
-        _latest_data: Most recently received angle data (or None).
-        _blocking_waiters: List of (event, result_holder) for blocking callers.
-        _waiters_lock: Lock protecting the blocking waiters list.
-        _streaming_queue: Queue for streaming mode data delivery (or None if not streaming).
-        _streaming_timer: Background thread for periodic requests (or None).
-        _streaming_interval_ms: Interval in milliseconds for streaming requests.
     """
 
-    # CAN protocol constants
     _CONTROL_CMD = 0x01
     _SENSE_CMD = [0x01]
     _ANGLE_COUNT = 6
@@ -110,7 +93,6 @@ class AngleManager:
             >>> if current:
             ...     print(f"Current angles: {current.angles.thumb_flex}")
         """
-        # Convert to raw CAN format (0-255)
         if isinstance(angles, L6Angle):
             raw_angles = angles.to_raw()
         elif isinstance(angles, list):
@@ -127,10 +109,9 @@ class AngleManager:
                     raise ValidationError(
                         f"Angle {i} value {angle} out of range [0, 100]"
                     )
-            # Convert to raw CAN format
             raw_angles = L6Angle.from_list(angles).to_raw()
 
-        # Build and send CAN message
+        # Build and send message
         data = [self._CONTROL_CMD, *raw_angles]
         msg = can.Message(
             arbitration_id=self._arbitration_id,
@@ -293,10 +274,6 @@ class AngleManager:
         self._streaming_interval_ms = None
 
     def _send_sense_request(self) -> None:
-        """Send an angle sensing request via CAN bus.
-
-        Sends a CAN message with data=[0x01] to request current angles.
-        """
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=self._SENSE_CMD,
@@ -305,11 +282,6 @@ class AngleManager:
         self._dispatcher.send(msg)
 
     def _streaming_loop(self) -> None:
-        """Background thread loop for streaming mode.
-
-        Periodically sends angle sensing requests at the configured interval.
-        The loop continues until _streaming_timer is set to None by stop_streaming().
-        """
         if self._streaming_interval_ms is None:
             raise StateError("Streaming is not active. Call stream() first.")
         while self._streaming_timer is not None:
@@ -317,17 +289,6 @@ class AngleManager:
             time.sleep(self._streaming_interval_ms / 1000.0)
 
     def _on_message(self, msg: can.Message) -> None:
-        """Handle incoming CAN messages (callback from dispatcher thread).
-
-        Filters for angle response messages and updates cache or wakes waiters.
-
-        Args:
-            msg: CAN message from the bus.
-
-        Note:
-            This method executes in the dispatcher's receive thread and must
-            return quickly to avoid blocking message reception.
-        """
         # Filter: only process messages with correct arbitration ID
         if msg.arbitration_id != self._arbitration_id:
             return
@@ -343,44 +304,25 @@ class AngleManager:
         if len(raw_angles) != self._ANGLE_COUNT:
             return
 
-        # Convert from raw CAN format (0-255) to L6Angle (0-100)
         angles = L6Angle.from_raw(raw_angles)
-
-        # Create immutable angle data
         angle_data = AngleData(angles=angles, timestamp=time.time())
-
-        # Dispatch to all consumers
         self._on_complete_data(angle_data)
 
     def _on_complete_data(self, data: AngleData) -> None:
-        """Handle complete angle data by dispatching to all consumers.
-
-        This method:
-        1. Updates the cached latest data
-        2. Wakes up all blocking waiters
-        3. Pushes data to the streaming queue (if active)
-
-        Args:
-            data: Complete angle data to distribute.
-
-        Note:
-            This method executes in the dispatcher's receive thread.
-        """
-        # 1. Update cache (atomic reference assignment)
+        # Update cache
         self._latest_data = data
 
-        # 2. Wake up all blocking waiters
+        # Wake up all blocking waiters
         with self._waiters_lock:
             for event, result_holder in self._blocking_waiters:
                 result_holder["data"] = data
                 event.set()
             self._blocking_waiters.clear()
 
-        # 3. Push to streaming queue if active
+        # Push to streaming queue if active
         if self._streaming_queue is None:
             return
         try:
-            # Non-blocking put
             self._streaming_queue.put_nowait(data)
         except queue.Full:
             # Queue full - remove oldest and try again

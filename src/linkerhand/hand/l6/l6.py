@@ -168,21 +168,12 @@ class L6:
     def close(self) -> None:
         """Close the L6 interface and release all resources.
 
-        This method:
-        1. Stops streaming mode for all sensors
-        2. Stops the CAN message dispatcher
-        3. Marks the interface as closed
-
         This method is idempotent and safe to call multiple times.
 
         Example:
             >>> hand = L6('left', 'can0')
             >>> hand.angle.set_angles((10, 20, 30, 40, 50, 60))
             >>> hand.close()  # Clean up resources
-
-        Raises:
-            No exceptions are raised during cleanup to ensure resources
-            are released even if errors occur.
         """
         if self._closed:
             return
@@ -234,14 +225,6 @@ class L6:
         return self._closed
 
     def _ensure_open(self) -> None:
-        """Ensure the interface is open.
-
-        Raises:
-            StateError: If the interface has been closed.
-
-        Note:
-            This is a helper method for subsystems to check state.
-        """
         if self._closed:
             raise StateError(
                 "L6 interface is closed. Create a new instance or use context manager."

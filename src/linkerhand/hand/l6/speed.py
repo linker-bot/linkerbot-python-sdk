@@ -13,20 +13,12 @@ from .types import L6Speed
 
 
 class SpeedManager:
-    """Manager for motor speed control via CAN bus.
+    """Manager for motor speed control.
 
     This class handles speed control operations by sending target speeds
     to the robotic hand motors.
-
-    CAN Protocol:
-        - Control: Send [0x05, speed1...speed6]
-
-    Attributes:
-        _arbitration_id: CAN arbitration ID for speed control.
-        _dispatcher: CAN message dispatcher for send operations.
     """
 
-    # CAN protocol constants
     _CONTROL_CMD = 0x05
     _SPEED_COUNT = 6
 
@@ -59,7 +51,6 @@ class SpeedManager:
             >>> # Using list
             >>> manager.set_speeds([50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
         """
-        # Convert to raw CAN format (0-255)
         if isinstance(speeds, L6Speed):
             raw_speeds = speeds.to_raw()
         elif isinstance(speeds, list):
@@ -76,10 +67,9 @@ class SpeedManager:
                     raise ValidationError(
                         f"Speed {i} value {speed} out of range [0, 100]"
                     )
-            # Convert to raw CAN format
             raw_speeds = L6Speed.from_list(speeds).to_raw()
 
-        # Build and send CAN message
+        # Build and send message
         data = [self._CONTROL_CMD, *raw_speeds]
         msg = can.Message(
             arbitration_id=self._arbitration_id,

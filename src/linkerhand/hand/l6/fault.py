@@ -11,14 +11,9 @@ from linkerhand.exceptions import ValidationError
 
 
 class FaultManager:
-    """Manager for clearing joint fault codes via CAN bus.
+    """Manager for clearing joint fault codes.
 
-    CAN Protocol:
-        - Clear faults: Send [0x83, joint1...joint6]
-
-    Each joint byte controls whether to clear that joint's fault:
-        - 0: Do not clear
-        - 1: Clear
+    Use clear_faults() to clear fault codes for one or more joints.
     """
 
     _CLEAR_FAULT_CMD = 0x83
