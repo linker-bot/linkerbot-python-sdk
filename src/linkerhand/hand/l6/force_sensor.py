@@ -13,6 +13,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 import can
+import numpy as np
+import numpy.typing as npt
 
 from linkerhand.comm import CANMessageDispatcher
 from linkerhand.exceptions import StateError, TimeoutError, ValidationError
@@ -24,11 +26,12 @@ class ForceSensorData:
     """Immutable force sensor data container.
 
     Attributes:
-        values: Tuple of 72 bytes representing force sensor readings.
+        values: NumPy array of shape (12, 6) with dtype uint8 representing force sensor readings.
+                Each row corresponds to a frame, and each frame contains 6 bytes.
         timestamp: Unix timestamp when the data was assembled.
     """
 
-    values: tuple
+    values: npt.NDArray[np.uint8]
     timestamp: float
 
 
@@ -69,7 +72,9 @@ class FrameBatch:
         data = bytearray(72)
         for i in range(12):
             data[i * 6 : (i + 1) * 6] = self.frames[i]
-        return ForceSensorData(values=tuple(data), timestamp=time.time())
+        return ForceSensorData(
+            values=np.array(data, dtype=np.uint8).reshape(12, 6), timestamp=time.time()
+        )
 
 
 class SingleForceSensorManager:
