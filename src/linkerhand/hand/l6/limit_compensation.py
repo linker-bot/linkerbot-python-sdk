@@ -115,12 +115,13 @@ class LimitCompensationManager:
     Compensation values are added to each joint's maximum limit (base limit: 1700).
 
     Provides three access modes:
-    1. Set compensation: set_limit_compensation() - configure joint limits
+    1. Set compensation: set_limit_compensation() - configure joint limits (requires password)
     2. Blocking read: get_limit_compensation_blocking() - request and wait for values
     3. Cache read: get_current_limit_compensation() - non-blocking read of cached values
     """
 
     _CMD = 0x38
+    _PASSWORD_CMD = 0xCB
     _JOINT_COUNT = 6
 
     def __init__(self, arbitration_id: int, dispatcher: CANMessageDispatcher) -> None:
@@ -141,34 +142,60 @@ class LimitCompensationManager:
         self._blocking_waiters: list[tuple[threading.Event, dict]] = []
         self._waiters_lock = threading.Lock()
 
-    def set_limit_compensation(
-        self, compensation: L6LimitCompensation | list[int]
-    ) -> None:
-        """Set joint limit compensation values.
+        # Password verification support
+        self._password_waiters: list[tuple[threading.Event, dict]] = []
+        self._password_lock = threading.Lock()
 
-        This method sends 6 compensation values to the hand. The hand will respond
-        with the current compensation values, which are automatically cached and can be
-        retrieved via get_current_limit_compensation().
+    def set_limit_compensation(
+        self,
+        compensation: L6LimitCompensation | list[int],
+        password: list[int],
+        timeout_ms: float = 200,
+    ) -> None:
+        """Set joint limit compensation values with password authentication.
+
+        This method sends 6 compensation values to the hand. Password verification
+        is required before the compensation values can be modified. The hand will
+        respond with the current compensation values, which are automatically cached
+        and can be retrieved via get_current_limit_compensation().
 
         Args:
             compensation: L6LimitCompensation instance or list of 6 compensation values (range 0-255 each).
+            password: 6-byte password list for authentication (e.g., [0x06, 0x05, 0x04, 0x03, 0x02, 0x01]).
+            timeout_ms: Maximum time to wait for password verification in milliseconds (default: 200).
 
         Raises:
-            ValidationError: If compensation count is not 6 or values are out of range.
+            ValidationError: If compensation count is not 6, values are out of range,
+                password length is not 6, or timeout_ms is not positive.
+            TimeoutError: If password verification fails or times out.
 
         Example:
             >>> manager = LimitCompensationManager(arbitration_id, dispatcher)
             >>> # Using L6LimitCompensation instance
-            >>> manager.set_limit_compensation(L6LimitCompensation(
-            ...     thumb_flex=50, thumb_abd=30, index=60, middle=60, ring=60, pinky=60
-            ... ))
+            >>> manager.set_limit_compensation(
+            ...     L6LimitCompensation(
+            ...         thumb_flex=50, thumb_abd=30, index=60, middle=60, ring=60, pinky=60
+            ...     ),
+            ...     password=[0x06, 0x05, 0x04, 0x03, 0x02, 0x01]
+            ... )
             >>> # Using list
-            >>> manager.set_limit_compensation([50, 30, 60, 60, 60, 60])
+            >>> manager.set_limit_compensation(
+            ...     [50, 30, 60, 60, 60, 60],
+            ...     password=[0x06, 0x05, 0x04, 0x03, 0x02, 0x01]
+            ... )
             >>> time.sleep(0.1)  # Wait for response
             >>> current = manager.get_current_limit_compensation()
             >>> if current:
             ...     print(f"Current compensation: {current.compensation.thumb_flex}")
         """
+        if timeout_ms <= 0:
+            raise ValidationError("timeout_ms must be positive")
+
+        if len(password) != 6:
+            raise ValidationError(f"Password must be 6 bytes, got {len(password)}")
+
+        # Verify password first
+        self._verify_password(password, timeout_ms)
         if isinstance(compensation, L6LimitCompensation):
             comp_values = compensation.to_list()
         elif isinstance(compensation, list):
@@ -275,13 +302,55 @@ class LimitCompensationManager:
         """
         return self._latest_data
 
+    def _verify_password(self, password: list[int], timeout_ms: float) -> None:
+        """Verify password before modifying compensation values."""
+        event = threading.Event()
+        result_holder: dict[str, bool] = {"success": False}
+
+        with self._password_lock:
+            self._password_waiters.append((event, result_holder))
+
+        # Send password
+        data = [self._PASSWORD_CMD, *password]
+        msg = can.Message(
+            arbitration_id=self._arbitration_id,
+            data=data,
+            is_extended_id=False,
+        )
+        self._dispatcher.send(msg)
+
+        # Wait for verification
+        if event.wait(timeout_ms / 1000.0):
+            if not result_holder["success"]:
+                raise TimeoutError("Password verification failed")
+        else:
+            with self._password_lock:
+                if (event, result_holder) in self._password_waiters:
+                    self._password_waiters.remove((event, result_holder))
+            raise TimeoutError(f"Password verification timed out after {timeout_ms}ms")
+
     def _on_message(self, msg: can.Message) -> None:
         # Internal callback
         if msg.arbitration_id != self._arbitration_id:
             return
 
-        # Filter: only process limit compensation response messages (start with 0x38)
-        if len(msg.data) < 2 or msg.data[0] != self._CMD:
+        if len(msg.data) < 1:
+            return
+
+        cmd = msg.data[0]
+
+        # Handle password verification response
+        if cmd == self._PASSWORD_CMD:
+            success = len(msg.data) >= 7
+            with self._password_lock:
+                for event, result_holder in self._password_waiters:
+                    result_holder["success"] = success
+                    event.set()
+                self._password_waiters.clear()
+            return
+
+        # Handle limit compensation response (start with 0x38)
+        if cmd != self._CMD or len(msg.data) < 2:
             return
 
         # Parse compensation data (skip first byte which is the command)
