@@ -16,46 +16,119 @@ from linkerhand.exceptions import StateError, TimeoutError, ValidationError
 from linkerhand.queue import IterableQueue
 
 
+@dataclass
+class O6Angle:
+    """Joint angles for O6 hand (0-100 range).
+
+    Attributes:
+        thumb_flex: Thumb flexion joint angle (0-100). Higher values extend the finger.
+        thumb_abd: Thumb abduction joint angle (0-100). Higher values move away from palm.
+        index: Index finger flexion joint angle (0-100). Higher values extend the finger.
+        middle: Middle finger flexion joint angle (0-100). Higher values extend the finger.
+        ring: Ring finger flexion joint angle (0-100). Higher values extend the finger.
+        pinky: Pinky finger flexion joint angle (0-100). Higher values extend the finger.
+    """
+
+    thumb_flex: float
+    thumb_abd: float
+    index: float
+    middle: float
+    ring: float
+    pinky: float
+
+    def to_list(self) -> list[float]:
+        """Convert to list of floats in joint order.
+
+        Returns:
+            List of 6 joint angles [thumb_flex, thumb_abd, index, middle, ring, pinky]
+        """
+        return [
+            self.thumb_flex,
+            self.thumb_abd,
+            self.index,
+            self.middle,
+            self.ring,
+            self.pinky,
+        ]
+
+    def to_raw(self) -> list[int]:
+        # Internal: Convert to hardware communication format
+        return [int(v * 255 / 100) for v in self.to_list()]
+
+    @classmethod
+    def from_list(cls, values: list[float]) -> "O6Angle":
+        """Construct from list of floats (0-100 range).
+
+        Args:
+            values: List of 6 float values in 0-100 range
+
+        Returns:
+            O6Angle instance
+
+        Raises:
+            ValueError: If list doesn't have exactly 6 elements
+        """
+        if len(values) != 6:
+            raise ValueError(f"Expected 6 values, got {len(values)}")
+        return cls(
+            thumb_flex=values[0],
+            thumb_abd=values[1],
+            index=values[2],
+            middle=values[3],
+            ring=values[4],
+            pinky=values[5],
+        )
+
+    @classmethod
+    def from_raw(cls, values: list[int]) -> "O6Angle":
+        # Internal: Construct from hardware communication format
+        if len(values) != 6:
+            raise ValueError(f"Expected 6 values, got {len(values)}")
+        normalized = [v * 100 / 255 for v in values]
+        return cls.from_list(normalized)
+
+    def __getitem__(self, index: int) -> float:
+        """Support indexing: angles[0] returns thumb_flex.
+
+        Args:
+            index: Joint index (0-5)
+
+        Returns:
+            Joint angle value
+
+        Raises:
+            IndexError: If index is out of range
+        """
+        return self.to_list()[index]
+
+    def __len__(self) -> int:
+        """Return number of joints (always 6 for O6)."""
+        return 6
+
+
 @dataclass(frozen=True)
 class AngleData:
     """Immutable angle data container.
 
     Attributes:
-        angles: Tuple of joint angles (6 values, range 0-255).
+        angles: O6Angle instance containing joint angles (0-100 range).
         timestamp: Unix timestamp when the data was received.
     """
 
-    angles: tuple
+    angles: O6Angle
     timestamp: float
 
 
 class AngleManager:
-    """Manager for joint angle control and sensing via CAN bus.
+    """Manager for joint angle control and sensing.
 
-    This class handles angle operations with four access modes:
+    This class provides four access modes for angle operations:
     1. Angle control: set_angles() - send 6 target angles and cache response
     2. Blocking mode: get_angles_blocking() - request and wait for 6 current angles
     3. Streaming mode: stream() - continuous polling with Queue-based delivery
     4. Cache reading: get_current_angles() - non-blocking read of cached angles
-
-    The manager uses an immutable data design for thread-safe operation without locks
-    for data access. All CAN message processing happens in the dispatcher's thread.
-
-    CAN Protocol:
-        - Control: Send [0x01, angle1...angle6] -> Receive [0x01, current1...current6]
-        - Sensing: Send [0x01] -> Receive [0x01, angle1...angle6]
-
-    Attributes:
-        _dispatcher: CAN message dispatcher for send/receive operations.
-        _latest_data: Most recently received angle data (or None).
-        _blocking_waiters: List of (event, result_holder) for blocking callers.
-        _waiters_lock: Lock protecting the blocking waiters list.
-        _streaming_queue: Queue for streaming mode data delivery (or None if not streaming).
-        _streaming_timer: Background thread for periodic requests (or None).
-        _streaming_interval_ms: Interval in milliseconds for streaming requests.
     """
 
-    # CAN protocol constants
     _CONTROL_CMD = 0x01
     _SENSE_CMD = [0x01]
     _ANGLE_COUNT = 6
@@ -83,7 +156,7 @@ class AngleManager:
         self._streaming_timer: threading.Thread | None = None
         self._streaming_interval_ms: float | None = None
 
-    def set_angles(self, angles: tuple[int, ...] | list[int]) -> None:
+    def set_angles(self, angles: O6Angle | list[float]) -> None:
         """Send target angles to the robotic hand.
 
         This method sends 6 target angles to the hand. The hand will respond
@@ -91,34 +164,43 @@ class AngleManager:
         retrieved via get_current_angles().
 
         Args:
-            angles: Tuple or list of 6 target angles (range 0-255 each).
+            angles: O6Angle instance or list of 6 target angles (range 0-100 each).
 
         Raises:
             ValidationError: If angles count is not 6 or values are out of range.
 
         Example:
             >>> manager = AngleManager(arbitration_id, dispatcher)
-            >>> manager.set_angles((10, 20, 30, 40, 50, 60))
+            >>> # Using O6Angle instance
+            >>> manager.set_angles(O6Angle(thumb_flex=50.0, thumb_abd=30.0,
+            ...                            index=60.0, middle=60.0, ring=60.0, pinky=60.0))
+            >>> # Using list
+            >>> manager.set_angles([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
             >>> time.sleep(0.1)  # Wait for response
             >>> current = manager.get_current_angles()
             >>> if current:
-            ...     print(f"Current angles: {current.angles}")
+            ...     print(f"Current angles: {current.angles.thumb_flex}")
         """
-        # Validate input
-        if len(angles) != self._ANGLE_COUNT:
-            raise ValidationError(
-                f"Expected {self._ANGLE_COUNT} angles, got {len(angles)}"
-            )
+        if isinstance(angles, O6Angle):
+            raw_angles = angles.to_raw()
+        elif isinstance(angles, list):
+            # Validate input
+            if len(angles) != self._ANGLE_COUNT:
+                raise ValidationError(
+                    f"Expected {self._ANGLE_COUNT} angles, got {len(angles)}"
+                )
+            # Validate angle values (0-100 range)
+            for i, angle in enumerate(angles):
+                if not isinstance(angle, float):
+                    raise ValidationError(f"Angle {i} must be float, got {type(angle)}")
+                if not 0 <= angle <= 100:
+                    raise ValidationError(
+                        f"Angle {i} value {angle} out of range [0, 100]"
+                    )
+            raw_angles = O6Angle.from_list(angles).to_raw()
 
-        # Validate angle values (0-255 range for CAN byte encoding)
-        for i, angle in enumerate(angles):
-            if not isinstance(angle, int):
-                raise ValidationError(f"Angle {i} must be int, got {type(angle)}")
-            if not 0 <= angle <= 255:
-                raise ValidationError(f"Angle {i} value {angle} out of range [0, 255]")
-
-        # Build and send CAN message
-        data = [self._CONTROL_CMD, *angles]
+        # Build and send message
+        data = [self._CONTROL_CMD, *raw_angles]
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=data,
@@ -280,10 +362,6 @@ class AngleManager:
         self._streaming_interval_ms = None
 
     def _send_sense_request(self) -> None:
-        """Send an angle sensing request via CAN bus.
-
-        Sends a CAN message with data=[0x01] to request current angles.
-        """
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=self._SENSE_CMD,
@@ -292,11 +370,6 @@ class AngleManager:
         self._dispatcher.send(msg)
 
     def _streaming_loop(self) -> None:
-        """Background thread loop for streaming mode.
-
-        Periodically sends angle sensing requests at the configured interval.
-        The loop continues until _streaming_timer is set to None by stop_streaming().
-        """
         if self._streaming_interval_ms is None:
             raise StateError("Streaming is not active. Call stream() first.")
         while self._streaming_timer is not None:
@@ -304,17 +377,6 @@ class AngleManager:
             time.sleep(self._streaming_interval_ms / 1000.0)
 
     def _on_message(self, msg: can.Message) -> None:
-        """Handle incoming CAN messages (callback from dispatcher thread).
-
-        Filters for angle response messages and updates cache or wakes waiters.
-
-        Args:
-            msg: CAN message from the bus.
-
-        Note:
-            This method executes in the dispatcher's receive thread and must
-            return quickly to avoid blocking message reception.
-        """
         # Filter: only process messages with correct arbitration ID
         if msg.arbitration_id != self._arbitration_id:
             return
@@ -324,47 +386,31 @@ class AngleManager:
             return
 
         # Parse angle data (skip first byte which is the command)
-        angles = tuple(msg.data[1:])
+        raw_angles = list(msg.data[1:])
 
         # Validate angle count (should be 6 angles)
-        if len(angles) != self._ANGLE_COUNT:
+        if len(raw_angles) != self._ANGLE_COUNT:
             return
 
-        # Create immutable angle data
+        angles = O6Angle.from_raw(raw_angles)
         angle_data = AngleData(angles=angles, timestamp=time.time())
-
-        # Dispatch to all consumers
         self._on_complete_data(angle_data)
 
     def _on_complete_data(self, data: AngleData) -> None:
-        """Handle complete angle data by dispatching to all consumers.
-
-        This method:
-        1. Updates the cached latest data
-        2. Wakes up all blocking waiters
-        3. Pushes data to the streaming queue (if active)
-
-        Args:
-            data: Complete angle data to distribute.
-
-        Note:
-            This method executes in the dispatcher's receive thread.
-        """
-        # 1. Update cache (atomic reference assignment)
+        # Update cache
         self._latest_data = data
 
-        # 2. Wake up all blocking waiters
+        # Wake up all blocking waiters
         with self._waiters_lock:
             for event, result_holder in self._blocking_waiters:
                 result_holder["data"] = data
                 event.set()
             self._blocking_waiters.clear()
 
-        # 3. Push to streaming queue if active
+        # Push to streaming queue if active
         if self._streaming_queue is None:
             return
         try:
-            # Non-blocking put
             self._streaming_queue.put_nowait(data)
         except queue.Full:
             # Queue full - remove oldest and try again

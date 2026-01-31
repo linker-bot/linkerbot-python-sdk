@@ -1,6 +1,6 @@
 """Temperature sensing for O6 robotic hand.
 
-This module provides the TemperatureManager class for reading joint temperature
+This module provides the TemperatureManager class for reading motor temperature
 sensor data via CAN bus communication.
 """
 
@@ -16,47 +16,120 @@ from linkerhand.exceptions import StateError, TimeoutError, ValidationError
 from linkerhand.queue import IterableQueue
 
 
+@dataclass
+class O6Temperature:
+    """Motor temperatures for O6 hand in degrees Celsius (°C).
+
+    Attributes:
+        thumb_flex: Thumb flexion motor temperature in °C
+        thumb_abd: Thumb abduction motor temperature in °C
+        index: Index finger motor temperature in °C
+        middle: Middle finger motor temperature in °C
+        ring: Ring finger motor temperature in °C
+        pinky: Pinky finger motor temperature in °C
+    """
+
+    thumb_flex: float
+    thumb_abd: float
+    index: float
+    middle: float
+    ring: float
+    pinky: float
+
+    def to_list(self) -> list[float]:
+        """Convert to list of floats in joint order.
+
+        Returns:
+            List of 6 temperatures in °C [thumb_flex, thumb_abd, index, middle, ring, pinky]
+        """
+        return [
+            self.thumb_flex,
+            self.thumb_abd,
+            self.index,
+            self.middle,
+            self.ring,
+            self.pinky,
+        ]
+
+    def to_raw(self) -> list[int]:
+        # Internal: Convert to hardware communication format
+        return [int(v) for v in self.to_list()]
+
+    @classmethod
+    def from_list(cls, values: list[float]) -> "O6Temperature":
+        """Construct from list of floats in degrees Celsius.
+
+        Args:
+            values: List of 6 float values in °C
+
+        Returns:
+            O6Temperature instance
+
+        Raises:
+            ValueError: If list doesn't have exactly 6 elements
+        """
+        if len(values) != 6:
+            raise ValueError(f"Expected 6 values, got {len(values)}")
+        return cls(
+            thumb_flex=values[0],
+            thumb_abd=values[1],
+            index=values[2],
+            middle=values[3],
+            ring=values[4],
+            pinky=values[5],
+        )
+
+    @classmethod
+    def from_raw(cls, values: list[int]) -> "O6Temperature":
+        # Internal: Construct from hardware communication format
+        if len(values) != 6:
+            raise ValueError(f"Expected 6 values, got {len(values)}")
+        temperatures_celsius = [float(v) for v in values]
+        return cls.from_list(temperatures_celsius)
+
+    def __getitem__(self, index: int) -> float:
+        """Support indexing: temperatures[0] returns thumb_flex.
+
+        Args:
+            index: Joint index (0-5)
+
+        Returns:
+            Temperature value
+
+        Raises:
+            IndexError: If index is out of range
+        """
+        return self.to_list()[index]
+
+    def __len__(self) -> int:
+        """Return number of temperature sensors (always 6 for O6)."""
+        return 6
+
+
 @dataclass(frozen=True)
 class TemperatureData:
     """Immutable temperature data container.
 
     Attributes:
-        temps: Tuple of joint temperatures (6 values, raw_u8).
+        temperatures: O6Temperature instance containing motor temperatures in degrees Celsius (°C).
         timestamp: Unix timestamp when the data was received.
     """
 
-    temps: tuple
+    temperatures: O6Temperature
     timestamp: float
 
 
 class TemperatureManager:
-    """Manager for joint temperature sensing via CAN bus.
+    """Manager for motor temperature sensing.
 
-    This class handles temperature operations with three access modes:
-    1. Blocking mode: get_temperatures_blocking() - request and wait for 6 current temperatures
+    This class provides three access modes for temperature operations:
+    1. Blocking mode: get_temperatures_blocking() - request and wait for 6 temperatures
     2. Streaming mode: stream() - continuous polling with Queue-based delivery
     3. Cache reading: get_current_temperatures() - non-blocking read of cached temperatures
-
-    Note: Temperature is read-only, there is no control mode.
-
-    The manager uses an immutable data design for thread-safe operation without locks
-    for data access. All CAN message processing happens in the dispatcher's thread.
-
-    CAN Protocol:
-        - Sensing: Send [0x33] -> Receive [0x33, temp1...temp6]
-
-    Attributes:
-        _dispatcher: CAN message dispatcher for send/receive operations.
-        _latest_data: Most recently received temperature data (or None).
-        _blocking_waiters: List of (event, result_holder) for blocking callers.
-        _waiters_lock: Lock protecting the blocking waiters list.
-        _streaming_queue: Queue for streaming mode data delivery (or None if not streaming).
-        _streaming_timer: Background thread for periodic requests (or None).
-        _streaming_interval_ms: Interval in milliseconds for streaming requests.
     """
 
-    # CAN protocol constants
-    _SENSE_CMD = [0x33]
+    _SENSE_CMD = 0x33
+    _SENSE_CMD_DATA = [0x33]
     _TEMPERATURE_COUNT = 6
 
     def __init__(self, arbitration_id: int, dispatcher: CANMessageDispatcher) -> None:
@@ -83,9 +156,9 @@ class TemperatureManager:
         self._streaming_interval_ms: float | None = None
 
     def get_temperatures_blocking(self, timeout_ms: float = 100) -> TemperatureData:
-        """Request and wait for current joint temperatures (blocking).
+        """Request and wait for current motor temperatures (blocking).
 
-        This method sends a sensing request and blocks until 6 current temperatures
+        This method sends a sensing request and blocks until 6 temperatures
         are received or the timeout expires. If streaming mode is active, this
         method may receive data from streaming requests.
 
@@ -103,7 +176,7 @@ class TemperatureManager:
             >>> manager = TemperatureManager(arbitration_id, dispatcher)
             >>> try:
             ...     data = manager.get_temperatures_blocking(timeout_ms=500)
-            ...     print(f"Current temperatures: {data.temps}")
+            ...     print(f"Current temperatures: {data.temperatures}")
             ... except TimeoutError:
             ...     print("Request timed out")
         """
@@ -136,8 +209,8 @@ class TemperatureManager:
     def get_current_temperatures(self) -> TemperatureData | None:
         """Get the most recent cached temperature data (non-blocking).
 
-        This method returns the last received temperature data (either from
-        get_temperatures_blocking() response or streaming) without sending any new requests.
+        This method returns the last received temperature data without sending
+        any new requests.
 
         Returns:
             TemperatureData instance or None if no data received yet.
@@ -146,13 +219,13 @@ class TemperatureManager:
             >>> data = manager.get_current_temperatures()
             >>> if data:
             ...     age = time.time() - data.timestamp
-            ...     if age < 0.2:  # Less than 200ms old
-            ...         print(f"Fresh temperatures: {data.temps}")
+            ...     if age < 0.1:  # Less than 100ms old
+            ...         print(f"Fresh temperatures: {data.temperatures}")
         """
         return self._latest_data
 
     def stream(
-        self, interval_ms: float = 200, maxsize: int = 100
+        self, interval_ms: float = 100, maxsize: int = 100
     ) -> IterableQueue[TemperatureData]:
         """Start streaming mode with periodic temperature requests.
 
@@ -162,7 +235,7 @@ class TemperatureManager:
         The returned queue supports for-loop iteration and blocks when empty (like Go channels).
 
         Args:
-            interval_ms: Request interval in milliseconds (default: 200).
+            interval_ms: Request interval in milliseconds (default: 100).
             maxsize: Maximum queue size (default: 100). When full, oldest data is dropped.
 
         Returns:
@@ -174,20 +247,20 @@ class TemperatureManager:
 
         Example:
             >>> manager = TemperatureManager(arbitration_id, dispatcher)
-            >>> q = manager.stream(interval_ms=200)
+            >>> q = manager.stream(interval_ms=100)
             >>> try:
             ...     # Method 1: For-loop iteration (blocks when empty)
             ...     for data in q:
-            ...         print(f"Temperatures: {data.temps}")
+            ...         print(f"Temperatures: {data.temperatures}")
             ... finally:
             ...     manager.stop_streaming()
             >>>
             >>> # Method 2: Manual get() calls
-            >>> q = manager.stream(interval_ms=200)
+            >>> q = manager.stream(interval_ms=100)
             >>> try:
             ...     while True:
             ...         data = q.get(timeout=1.0)
-            ...         print(f"Temperatures: {data.temps}")
+            ...         print(f"Temperatures: {data.temperatures}")
             ... finally:
             ...     manager.stop_streaming()
         """
@@ -238,23 +311,14 @@ class TemperatureManager:
         self._streaming_interval_ms = None
 
     def _send_sense_request(self) -> None:
-        """Send a temperature sensing request via CAN bus.
-
-        Sends a CAN message with data=[0x33] to request current temperatures.
-        """
         msg = can.Message(
             arbitration_id=self._arbitration_id,
-            data=self._SENSE_CMD,
+            data=self._SENSE_CMD_DATA,
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
 
     def _streaming_loop(self) -> None:
-        """Background thread loop for streaming mode.
-
-        Periodically sends temperature sensing requests at the configured interval.
-        The loop continues until _streaming_timer is set to None by stop_streaming().
-        """
         if self._streaming_interval_ms is None:
             raise StateError("Streaming is not active. Call stream() first.")
         while self._streaming_timer is not None:
@@ -262,67 +326,40 @@ class TemperatureManager:
             time.sleep(self._streaming_interval_ms / 1000.0)
 
     def _on_message(self, msg: can.Message) -> None:
-        """Handle incoming CAN messages (callback from dispatcher thread).
-
-        Filters for temperature response messages and updates cache or wakes waiters.
-
-        Args:
-            msg: CAN message from the bus.
-
-        Note:
-            This method executes in the dispatcher's receive thread and must
-            return quickly to avoid blocking message reception.
-        """
         # Filter: only process messages with correct arbitration ID
         if msg.arbitration_id != self._arbitration_id:
             return
 
         # Filter: only process temperature response messages (start with 0x33)
-        if len(msg.data) < 2 or msg.data[0] != 0x33:
+        if len(msg.data) < 2 or msg.data[0] != self._SENSE_CMD:
             return
 
         # Parse temperature data (skip first byte which is the command)
-        temps = tuple(msg.data[1:])
+        raw_temperatures = list(msg.data[1:])
 
         # Validate temperature count (should be 6 temperatures)
-        if len(temps) != self._TEMPERATURE_COUNT:
+        if len(raw_temperatures) != self._TEMPERATURE_COUNT:
             return
 
-        # Create immutable temperature data
-        temperature_data = TemperatureData(temps=temps, timestamp=time.time())
-
-        # Dispatch to all consumers
-        self._on_complete_data(temperature_data)
+        temperatures = O6Temperature.from_raw(raw_temperatures)
+        temp_data = TemperatureData(temperatures=temperatures, timestamp=time.time())
+        self._on_complete_data(temp_data)
 
     def _on_complete_data(self, data: TemperatureData) -> None:
-        """Handle complete temperature data by dispatching to all consumers.
-
-        This method:
-        1. Updates the cached latest data
-        2. Wakes up all blocking waiters
-        3. Pushes data to the streaming queue (if active)
-
-        Args:
-            data: Complete temperature data to distribute.
-
-        Note:
-            This method executes in the dispatcher's receive thread.
-        """
-        # 1. Update cache (atomic reference assignment)
+        # Update cache
         self._latest_data = data
 
-        # 2. Wake up all blocking waiters
+        # Wake up all blocking waiters
         with self._waiters_lock:
             for event, result_holder in self._blocking_waiters:
                 result_holder["data"] = data
                 event.set()
             self._blocking_waiters.clear()
 
-        # 3. Push to streaming queue if active
+        # Push to streaming queue if active
         if self._streaming_queue is None:
             return
         try:
-            # Non-blocking put
             self._streaming_queue.put_nowait(data)
         except queue.Full:
             # Queue full - remove oldest and try again

@@ -1,8 +1,8 @@
 """O6 robotic hand control interface.
 
 This module provides the main O6 class for controlling the O6 robotic hand
-via CAN bus communication. It integrates angle control, torque control,
-speed control, and temperature sensing into a unified interface.
+via CAN bus communication. It integrates angle control and force sensor
+data acquisition into a unified interface.
 """
 
 from typing import Literal
@@ -11,17 +11,22 @@ from linkerhand.comm import CANMessageDispatcher
 from linkerhand.exceptions import StateError
 
 from .angle import AngleManager
-from .speed import SpeedManager
+from .factory_reset import FactoryResetManager
+from .fault import FaultManager
+from .force_sensor import ForceSensorManager
+from .speed import AccelerationManager, SpeedManager
+from .stall import StallManager
 from .temperature import TemperatureManager
 from .torque import TorqueManager
+from .version import VersionManager
 
 
 class O6:
     """Main interface for O6 robotic hand control.
 
     This class provides a unified interface for controlling the O6 robotic hand,
-    integrating angle control, torque control, speed control, and temperature
-    sensing. It manages the CAN bus connection and coordinates all subsystems.
+    integrating angle control, speed control and force sensor data acquisition. It manages the
+    CAN bus connection and coordinates all subsystems.
 
     The O6 class should be used as a context manager to ensure proper resource
     cleanup:
@@ -34,21 +39,59 @@ class O6:
         # Control speeds
         hand.speed.set_speeds((100, 100, 100, 100, 100, 100))
 
-        # Control accelerations
-        hand.speed.set_accelerations((50, 50, 50, 50, 50, 50))
+        # Get force sensor data for all fingers
+        all_sensors = hand.force_sensor.get_all_data_blocking(timeout_ms=500)
 
-        # Get temperature data
-        temps = hand.temperature.get_temperatures_blocking(timeout_ms=500)
+        # Get temperature data for all fingers
+        all_temperatures = hand.temperature.get_temperatures_blocking(timeout_ms=500)
 
-        # Control torque
-        hand.torque.set_torques((100, 150, 200, 180, 160, 140))
+        # Or get data for a specific finger
+        thumb_data = hand.force_sensor.get_finger('thumb').get_data_blocking()
+
+        # Control torques
+        hand.torque.set_torques((50, 50, 50, 50, 50, 50))
+
+        # Read fault status
+        fault_data = hand.fault.get_faults_blocking(timeout_ms=500)
+        if fault_data.faults.has_any_fault():
+            # Check specific joint
+            if fault_data.faults.thumb_flex.has_fault():
+                print(f"Thumb flex: {fault_data.faults.thumb_flex.get_fault_names()}")
+            # Check index finger
+            if fault_data.faults.index.has_fault():
+                print(f"Index: {fault_data.faults.index.get_fault_names()}")
+
+        # Configure stall detection
+        hand.stall.set_stall_time([500.0, 500.0, 500.0, 500.0, 500.0, 500.0])  # 500ms
+        hand.stall.set_stall_threshold([500.0, 500.0, 500.0, 500.0, 500.0, 500.0])  # 500mA
+        hand.stall.set_stall_torque([700.0, 700.0, 700.0, 700.0, 700.0, 700.0])  # 700mA
+
+        # Get device version information
+        device_info = hand.version.get_device_info()
+        print(f"Serial Number: {device_info.serial_number}")
+        print(f"PCB Version: {device_info.pcb_version}")
+        print(f"Firmware Version: {device_info.firmware_version}")
+        print(f"Mechanical Version: {device_info.mechanical_version}")
+
+        # Factory reset (USE WITH CAUTION!)
+        # hand.factory_reset.reset_to_factory()
     ```
 
     Attributes:
         angle: AngleManager instance for joint angle control and sensing.
-        torque: TorqueManager instance for joint torque limit control and sensing.
-        speed: SpeedManager instance for motor speed and acceleration control.
-        temperature: TemperatureManager instance for joint temperature sensing.
+        speed: SpeedManager instance for motor speed control and sensing.
+        acceleration: AccelerationManager instance for motor acceleration control.
+        force_sensor: ForceSensorManager instance for force sensor data acquisition.
+        torque: TorqueManager instance for joint torque control and sensing.
+        temperature: TemperatureManager instance for temperature data acquisition.
+        fault: FaultManager instance for fault status reading.
+        stall: StallManager instance for stall detection configuration.
+        version: VersionManager instance for device version information.
+        factory_reset: FactoryResetManager instance for factory reset operations.
+    Args:
+        side: Side of the hand (left or right, default: left).
+        interface_name: Name of the CAN interface (e.g., 'can0', 'vcan0').
+        interface_type: Type of CAN interface backend (default: 'socketcan').
     """
 
     def __init__(
@@ -60,15 +103,9 @@ class O6:
         """Initialize the O6 robotic hand interface.
 
         Args:
-            side: Hand side ('left' or 'right').
+            side: Side of the hand (left or right, default: left).
             interface_name: Name of the CAN interface (e.g., 'can0', 'vcan0').
             interface_type: Type of CAN interface backend (default: 'socketcan').
-
-        Example:
-            >>> hand = O6('left', 'can0')
-            >>> hand.__enter__()  # Or use with statement
-            >>> hand.angle.set_angles((10, 20, 30, 40, 50, 60))
-            >>> hand.close()
 
         Note:
             The CAN dispatcher is automatically started when entering the context manager.
@@ -87,16 +124,33 @@ class O6:
         self.angle = AngleManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
+        self.force_sensor = ForceSensorManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
         self.torque = TorqueManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
         self.speed = SpeedManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
+        self.acceleration = AccelerationManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
         self.temperature = TemperatureManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
-
+        self.fault = FaultManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.stall = StallManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.version = VersionManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
+        self.factory_reset = FactoryResetManager(
+            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+        )
         # State tracking
         self._closed = False
 
@@ -135,29 +189,23 @@ class O6:
     def close(self) -> None:
         """Close the O6 interface and release all resources.
 
-        This method:
-        1. Stops streaming mode for all sensors (angle, temperature)
-        2. Stops the CAN message dispatcher
-        3. Marks the interface as closed
-
         This method is idempotent and safe to call multiple times.
 
         Example:
             >>> hand = O6('left', 'can0')
             >>> hand.angle.set_angles((10, 20, 30, 40, 50, 60))
             >>> hand.close()  # Clean up resources
-
-        Raises:
-            No exceptions are raised during cleanup to ensure resources
-            are released even if errors occur.
         """
         if self._closed:
             return
 
         try:
-            # Stop streaming modes (angle and temperature have streaming, torque and speed don't)
+            # Stop streaming modes
+            self.force_sensor.stop_streaming()
             self.angle.stop_streaming()
+            self.torque.stop_streaming()
             self.temperature.stop_streaming()
+            self.fault.stop_streaming()
         except Exception:
             # Ignore errors during cleanup
             pass
@@ -198,14 +246,6 @@ class O6:
         return self._closed
 
     def _ensure_open(self) -> None:
-        """Ensure the interface is open.
-
-        Raises:
-            StateError: If the interface has been closed.
-
-        Note:
-            This is a helper method for subsystems to check state.
-        """
         if self._closed:
             raise StateError(
                 "O6 interface is closed. Create a new instance or use context manager."
