@@ -240,15 +240,6 @@ class SpeedManager:
         if isinstance(speeds, O6Speed):
             raw_speeds = speeds.to_raw()
         elif isinstance(speeds, list):
-            # Validate input
-            if len(speeds) != self._SPEED_COUNT:
-                raise ValidationError(
-                    f"Expected {self._SPEED_COUNT} speeds, got {len(speeds)}"
-                )
-            # Validate speed values (0-100 range)
-            for i, speed in enumerate(speeds):
-                if not isinstance(speed, float):
-                    raise ValidationError(f"Speed {i} must be float, got {type(speed)}")
             raw_speeds = O6Speed.from_list(speeds).to_raw()
 
         # Build and send message

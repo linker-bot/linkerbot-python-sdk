@@ -74,6 +74,8 @@ class O6Torque:
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
         for value in values:
+            if not isinstance(value, (float, int)):
+                raise ValueError(f"Torque value {value} must be float/int")
             if value < 0 or value > 100:
                 raise ValueError(f"Value {value} out of range [0, 100]")
         return cls(
@@ -246,17 +248,6 @@ class TorqueManager:
         if isinstance(torques, O6Torque):
             raw_torques = torques.to_raw()
         elif isinstance(torques, list):
-            # Validate input
-            if len(torques) != self._TORQUE_COUNT:
-                raise ValidationError(
-                    f"Expected {self._TORQUE_COUNT} torques, got {len(torques)}"
-                )
-            # Validate torque values (0-100 range)
-            for i, torque in enumerate(torques):
-                if not isinstance(torque, float):
-                    raise ValidationError(
-                        f"Torque {i} must be float, got {type(torque)}"
-                    )
             raw_torques = O6Torque.from_list(torques).to_raw()
 
         # Build and send message

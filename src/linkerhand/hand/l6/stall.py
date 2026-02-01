@@ -48,10 +48,6 @@ class L6StallTime:
             self.pinky,
         ]
 
-    def to_raw(self) -> list[int]:
-        # Internal: Convert to hardware communication format (time_ms / 10)
-        return [int(v / 10) for v in self.to_list()]
-
     @classmethod
     def from_list(cls, values: list[float]) -> "L6StallTime":
         """Construct from list of floats in milliseconds (10-2550 range).
@@ -67,6 +63,11 @@ class L6StallTime:
         """
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
+        for value in values:
+            if not isinstance(value, (float, int)):
+                raise ValueError(f"Stall time value {value} must be float/int")
+            if not 0 <= value <= 2550:
+                raise ValueError(f"Stall time value {value} out of range [0, 2550]")
         return cls(
             thumb_flex=values[0],
             thumb_abd=values[1],
@@ -75,6 +76,10 @@ class L6StallTime:
             ring=values[4],
             pinky=values[5],
         )
+
+    def to_raw(self) -> list[int]:
+        # Internal: Convert to hardware communication format (time_ms / 10)
+        return [int(v / 10) for v in self.to_list()]
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6StallTime":
@@ -141,10 +146,6 @@ class L6StallThreshold:
             self.pinky,
         ]
 
-    def to_raw(self) -> list[int]:
-        # Internal: Convert to hardware communication format
-        return [int(v * 255 / 1400) for v in self.to_list()]
-
     @classmethod
     def from_list(cls, values: list[float]) -> "L6StallThreshold":
         """Construct from list of floats (0-1400 range).
@@ -160,6 +161,11 @@ class L6StallThreshold:
         """
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
+        for value in values:
+            if not isinstance(value, (float, int)):
+                raise ValueError(f"Threshold value {value} must be float/int")
+            if not 0 <= value <= 1400:
+                raise ValueError(f"Threshold value {value} out of range [0, 1400]")
         return cls(
             thumb_flex=values[0],
             thumb_abd=values[1],
@@ -168,6 +174,10 @@ class L6StallThreshold:
             ring=values[4],
             pinky=values[5],
         )
+
+    def to_raw(self) -> list[int]:
+        # Internal: Convert to hardware communication format
+        return [int(v * 255 / 1400) for v in self.to_list()]
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6StallThreshold":
@@ -234,10 +244,6 @@ class L6StallTorque:
             self.pinky,
         ]
 
-    def to_raw(self) -> list[int]:
-        # Internal: Convert to hardware communication format
-        return [int(v * 255 / 1400) for v in self.to_list()]
-
     @classmethod
     def from_list(cls, values: list[float]) -> "L6StallTorque":
         """Construct from list of floats (0-1400 range).
@@ -253,6 +259,11 @@ class L6StallTorque:
         """
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
+        for value in values:
+            if not isinstance(value, (float, int)):
+                raise ValueError(f"Torque value {value} must be float/int")
+            if not 0 <= value <= 1400:
+                raise ValueError(f"Torque value {value} out of range [0, 1400]")
         return cls(
             thumb_flex=values[0],
             thumb_abd=values[1],
@@ -261,6 +272,10 @@ class L6StallTorque:
             ring=values[4],
             pinky=values[5],
         )
+
+    def to_raw(self) -> list[int]:
+        # Internal: Convert to hardware communication format
+        return [int(v * 255 / 1400) for v in self.to_list()]
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6StallTorque":
@@ -345,19 +360,6 @@ class StallManager:
         if isinstance(time, L6StallTime):
             raw_time = time.to_raw()
         elif isinstance(time, list):
-            # Validate input
-            if len(time) != self._PARAM_COUNT:
-                raise ValidationError(
-                    f"Expected {self._PARAM_COUNT} time values, got {len(time)}"
-                )
-            # Validate time values (10-2550 ms range, 0 to disable)
-            for i, t in enumerate(time):
-                if not isinstance(t, (int, float)):
-                    raise ValidationError(f"Time {i} must be numeric, got {type(t)}")
-                if t != 0 and not (10 <= t <= 2550):
-                    raise ValidationError(
-                        f"Time {i} value {t} out of range [10, 2550] (0 to disable)"
-                    )
             raw_time = L6StallTime.from_list(time).to_raw()
 
         # Build and send message
@@ -395,21 +397,6 @@ class StallManager:
         if isinstance(threshold, L6StallThreshold):
             raw_threshold = threshold.to_raw()
         elif isinstance(threshold, list):
-            # Validate input
-            if len(threshold) != self._PARAM_COUNT:
-                raise ValidationError(
-                    f"Expected {self._PARAM_COUNT} threshold values, got {len(threshold)}"
-                )
-            # Validate threshold values (0-1400 mA range)
-            for i, th in enumerate(threshold):
-                if not isinstance(th, (int, float)):
-                    raise ValidationError(
-                        f"Threshold {i} must be numeric, got {type(th)}"
-                    )
-                if not 0 <= th <= 1400:
-                    raise ValidationError(
-                        f"Threshold {i} value {th} out of range [0, 1400]"
-                    )
             raw_threshold = L6StallThreshold.from_list(threshold).to_raw()
 
         # Build and send message
@@ -447,19 +434,6 @@ class StallManager:
         if isinstance(torque, L6StallTorque):
             raw_torque = torque.to_raw()
         elif isinstance(torque, list):
-            # Validate input
-            if len(torque) != self._PARAM_COUNT:
-                raise ValidationError(
-                    f"Expected {self._PARAM_COUNT} torque values, got {len(torque)}"
-                )
-            # Validate torque values (0-1400 mA range)
-            for i, t in enumerate(torque):
-                if not isinstance(t, (int, float)):
-                    raise ValidationError(f"Torque {i} must be numeric, got {type(t)}")
-                if not 0 <= t <= 1400:
-                    raise ValidationError(
-                        f"Torque {i} value {t} out of range [0, 1400]"
-                    )
             raw_torque = L6StallTorque.from_list(torque).to_raw()
 
         # Build and send message

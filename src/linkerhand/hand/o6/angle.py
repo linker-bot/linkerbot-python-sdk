@@ -70,6 +70,11 @@ class O6Angle:
         """
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
+        for value in values:
+            if not isinstance(value, (float, int)):
+                raise ValueError(f"Angle value {value} must be float/int")
+            if not 0 <= value <= 100:
+                raise ValueError(f"Angle value {value} out of range [0, 100]")
         return cls(
             thumb_flex=values[0],
             thumb_abd=values[1],
@@ -184,19 +189,6 @@ class AngleManager:
         if isinstance(angles, O6Angle):
             raw_angles = angles.to_raw()
         elif isinstance(angles, list):
-            # Validate input
-            if len(angles) != self._ANGLE_COUNT:
-                raise ValidationError(
-                    f"Expected {self._ANGLE_COUNT} angles, got {len(angles)}"
-                )
-            # Validate angle values (0-100 range)
-            for i, angle in enumerate(angles):
-                if not isinstance(angle, float):
-                    raise ValidationError(f"Angle {i} must be float, got {type(angle)}")
-                if not 0 <= angle <= 100:
-                    raise ValidationError(
-                        f"Angle {i} value {angle} out of range [0, 100]"
-                    )
             raw_angles = O6Angle.from_list(angles).to_raw()
 
         # Build and send message

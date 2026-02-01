@@ -9,7 +9,6 @@ from dataclasses import dataclass
 import can
 
 from linkerhand.comm import CANMessageDispatcher
-from linkerhand.exceptions import ValidationError
 
 
 @dataclass
@@ -47,10 +46,6 @@ class L6Speed:
             self.pinky,
         ]
 
-    def to_raw(self) -> list[int]:
-        # Internal: Convert to hardware communication format
-        return [int(v * 255 / 100) for v in self.to_list()]
-
     @classmethod
     def from_list(cls, values: list[float]) -> "L6Speed":
         """Construct from list of floats (0-100 range).
@@ -66,6 +61,11 @@ class L6Speed:
         """
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
+        for value in values:
+            if not isinstance(value, (float, int)):
+                raise ValueError(f"Speed value {value} must be float/int")
+            if not 0 <= value <= 100:
+                raise ValueError(f"Speed value {value} out of range [0, 100]")
         return cls(
             thumb_flex=values[0],
             thumb_abd=values[1],
@@ -74,6 +74,10 @@ class L6Speed:
             ring=values[4],
             pinky=values[5],
         )
+
+    def to_raw(self) -> list[int]:
+        # Internal: Convert to hardware communication format
+        return [int(v * 255 / 100) for v in self.to_list()]
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6Speed":
@@ -144,19 +148,6 @@ class SpeedManager:
         if isinstance(speeds, L6Speed):
             raw_speeds = speeds.to_raw()
         elif isinstance(speeds, list):
-            # Validate input
-            if len(speeds) != self._SPEED_COUNT:
-                raise ValidationError(
-                    f"Expected {self._SPEED_COUNT} speeds, got {len(speeds)}"
-                )
-            # Validate speed values (0-100 range)
-            for i, speed in enumerate(speeds):
-                if not isinstance(speed, float):
-                    raise ValidationError(f"Speed {i} must be float, got {type(speed)}")
-                if not 0 <= speed <= 100:
-                    raise ValidationError(
-                        f"Speed {i} value {speed} out of range [0, 100]"
-                    )
             raw_speeds = L6Speed.from_list(speeds).to_raw()
 
         # Build and send message

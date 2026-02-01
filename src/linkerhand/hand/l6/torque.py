@@ -51,10 +51,6 @@ class L6Torque:
             self.pinky,
         ]
 
-    def to_raw(self) -> list[int]:
-        # Internal: Convert to hardware communication format
-        return [int(v * 255 / 100) for v in self.to_list()]
-
     @classmethod
     def from_list(cls, values: list[float]) -> "L6Torque":
         """Construct from list of floats (0-100 range).
@@ -70,6 +66,11 @@ class L6Torque:
         """
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
+        for value in values:
+            if not isinstance(value, (float, int)):
+                raise ValueError(f"Torque value {value} must be float/int")
+            if not 0 <= value <= 100:
+                raise ValueError(f"Torque value {value} out of range [0, 100]")
         return cls(
             thumb_flex=values[0],
             thumb_abd=values[1],
@@ -78,6 +79,10 @@ class L6Torque:
             ring=values[4],
             pinky=values[5],
         )
+
+    def to_raw(self) -> list[int]:
+        # Internal: Convert to hardware communication format
+        return [int(v * 255 / 100) for v in self.to_list()]
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6Torque":
@@ -184,21 +189,6 @@ class TorqueManager:
         if isinstance(torques, L6Torque):
             raw_torques = torques.to_raw()
         elif isinstance(torques, list):
-            # Validate input
-            if len(torques) != self._TORQUE_COUNT:
-                raise ValidationError(
-                    f"Expected {self._TORQUE_COUNT} torques, got {len(torques)}"
-                )
-            # Validate torque values (0-100 range)
-            for i, torque in enumerate(torques):
-                if not isinstance(torque, float):
-                    raise ValidationError(
-                        f"Torque {i} must be float, got {type(torque)}"
-                    )
-                if not 0 <= torque <= 100:
-                    raise ValidationError(
-                        f"Torque {i} value {torque} out of range [0, 100]"
-                    )
             raw_torques = L6Torque.from_list(torques).to_raw()
 
         # Build and send message

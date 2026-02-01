@@ -51,10 +51,6 @@ class L6Current:
             self.pinky,
         ]
 
-    def to_raw(self) -> list[int]:
-        # Internal: Convert to hardware communication format
-        return [int(v * 255 / 1400) for v in self.to_list()]
-
     @classmethod
     def from_list(cls, values: list[float]) -> "L6Current":
         """Construct from list of floats in milliamps.
@@ -78,6 +74,10 @@ class L6Current:
             ring=values[4],
             pinky=values[5],
         )
+
+    def to_raw(self) -> list[int]:
+        # Internal: Convert to hardware communication format
+        return [int(v * 255 / 1400) for v in self.to_list()]
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6Current":
