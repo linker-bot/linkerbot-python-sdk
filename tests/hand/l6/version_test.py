@@ -1,4 +1,4 @@
-from linkerhand import L6
+from linkerbot import L6
 
 with L6("right", "can0") as hand:
     device_info = hand.version.get_device_info()

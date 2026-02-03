@@ -1,22 +1,15 @@
 [project]
-name = "linkerhand"
+name = "linkerbot"
 version = "0.1.0"
-description = "Linkerhand Python SDK"
+description = "Linkerbot Python SDK"
 readme = "README.md"
 authors = [{ name = "Jason Yip", email = "yezi.2022@outlook.com" }]
 requires-python = ">=3.13"
-dependencies = [
-    "numpy>=2.4.1",
-    "python-can>=4.6.1",
-]
+dependencies = ["numpy>=2.4.1", "python-can>=4.6.1"]
 
 [build-system]
 requires = ["uv_build>=0.9.8,<0.10.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-dev = [
-    "ruff>=0.14.11",
-    "ty>=0.0.11",
-    "uv-bump>=0.4.1",
-]
+dev = ["ruff>=0.14.11", "ty>=0.0.11", "uv-bump>=0.4.1"]
