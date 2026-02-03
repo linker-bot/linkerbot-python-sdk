@@ -13,3 +13,19 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = ["ruff>=0.14.11", "ty>=0.0.11", "uv-bump>=0.4.1"]
+test = ["pytest>=9.0.2", "pytest-timeout>=2.4.0"]
+
+[[tool.uv.index]]
+url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
+default = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "interactive: Interactive tests requiring human observation",
+    "l6: Tests for L6 robotic hand",
+    "o6: Tests for O6 robotic hand",
+    "slow: Tests that take longer to run",
+]
+addopts = ["-v", "--strict-markers", "-m", "not interactive"]
+timeout = 120

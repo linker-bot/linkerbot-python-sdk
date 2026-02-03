@@ -515,3 +515,6 @@ Temporary Items
 # add your custom gitignore here:
 !.gitignore
 !.gitsubmodules
+
+# Test reports (keep directory, ignore JSON reports)
+tests/reports/*.json

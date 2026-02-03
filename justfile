@@ -7,7 +7,7 @@ update:
 
 [group('lint')]
 lint:
-    uv sync
+    uv sync --all-groups
     uvx ruff check .
     uvx ruff format --check --diff .
     uvx ty check .
