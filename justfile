@@ -24,3 +24,7 @@ switch:
       git fetch -p; \
       git branch -D {{ current_branch }}; \
     fi
+
+[group('docs')]
+preview:
+    mdbook serve docs/zh
