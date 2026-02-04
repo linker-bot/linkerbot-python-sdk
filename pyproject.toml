@@ -1,6 +1,6 @@
 [project]
 name = "linkerbot"
-version = "0.1.0"
+version = "0.1.1a1"
 description = "Linkerbot Python SDK"
 readme = "README.md"
 authors = [{ name = "Jason Yip", email = "yezi.2022@outlook.com" }]
@@ -18,6 +18,12 @@ test = ["pytest>=9.0.2", "pytest-timeout>=2.4.0"]
 [[tool.uv.index]]
 url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
 default = true
+
+[[tool.uv.index]]
+name = "gitea-linker-bot"
+url = "https://gitea.darkjason.com/api/packages/linker-bot/pypi/simple/"
+publish-url = "https://gitea.darkjason.com/api/packages/linker-bot/pypi"
+explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
