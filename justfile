@@ -21,9 +21,13 @@ fix-lint:
 switch:
     if [ {{ current_branch }} != "main" ]; then \
       git switch main; \
-      git fetch -p; \
+      git fetch origin -p; \
       git branch -D {{ current_branch }}; \
     fi
+
+[group('git')]
+sync-oss:
+    git push oss main
 
 [group('docs')]
 preview:
