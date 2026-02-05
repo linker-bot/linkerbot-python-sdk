@@ -6,7 +6,7 @@ and only stops when explicitly closed or when an exception occurs.
 """
 
 import queue
-from typing import TypeVar
+from typing import Generic, TypeVar
 
 from linkerbot.exceptions import StateError
 
@@ -15,7 +15,7 @@ T = TypeVar("T")
 _POLL_TIMEOUT = 0.1
 
 
-class IterableQueue[T]:
+class IterableQueue(Generic[T]):
     """Queue wrapper that supports iteration like Go channels.
 
     This queue blocks when empty during iteration, similar to Go channel behavior.
