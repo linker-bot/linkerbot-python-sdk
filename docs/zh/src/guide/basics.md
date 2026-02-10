@@ -27,7 +27,7 @@ with L6(side="left", interface_name="can0") as hand:
     hand.angle.set_angles([50, 50, 50, 50, 50, 50])
     hand.speed.set_speeds([100, 100, 100, 100, 100, 100])
 
-    data = hand.temperature.get_temperatures_blocking()
+    data = hand.temperature.get_blocking()
 ```
 
 ## 类型安全
@@ -72,7 +72,7 @@ with L6(side="left", interface_name="can0") as hand:
 发送请求并等待响应：
 
 ```python
-data = hand.angle.get_angles_blocking(timeout_ms=100)
+data = hand.angle.get_blocking(timeout_ms=100)
 ```
 
 ### 缓存读取
@@ -80,30 +80,40 @@ data = hand.angle.get_angles_blocking(timeout_ms=100)
 获取最近一次接收的数据（非阻塞）：
 
 ```python
-data = hand.angle.get_current_angles()
+data = hand.angle.get_snapshot()
 if data is not None:
     print(data.angles)
 ```
 
 ### 流式读取
 
-持续接收数据：
+通过统一事件流持续接收数据：
 
 ```python
-queue = hand.angle.stream(interval_ms=100, maxsize=10)
+from linkerbot.hand.l6 import SensorSource, AngleEvent
 
-for data in queue:
-    print(data.angles)
+hand.start_polling(sources=[SensorSource.ANGLE], interval_ms=100)
+
+for event in hand.stream():
+    match event:
+        case AngleEvent(data=data):
+            print(data.angles)
     if should_stop():
         break
 
-hand.angle.stop_streaming()
+hand.stop_polling()
+hand.stop_stream()
 ```
 
-| 参数 | 说明 |
-|------|------|
-| `interval_ms` | 轮询间隔（毫秒） |
-| `maxsize` | 队列大小，满时丢弃旧数据 |
+### 快照
+
+获取所有传感器的最新缓存数据：
+
+```python
+snap = hand.get_snapshot()
+print(snap.angle)        # AngleData | None
+print(snap.temperature)  # TemperatureData | None
+```
 
 ## 资源管理
 
@@ -135,7 +145,7 @@ from linkerbot.exceptions import TimeoutError, ValidationError
 
 with L6(side="left", interface_name="can0") as hand:
     try:
-        data = hand.angle.get_angles_blocking(timeout_ms=100)
+        data = hand.angle.get_blocking(timeout_ms=100)
     except TimeoutError:
         print("读取超时")
     except ValidationError as e:

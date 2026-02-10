@@ -35,7 +35,7 @@ from linkerbot import O6
 from linkerbot.exceptions import TimeoutError
 
 try:
-    data = hand.speed.get_speeds_blocking(timeout_ms=500)
+    data = hand.speed.get_blocking(timeout_ms=500)
     print(f"拇指弯曲速度：{data.speeds.thumb_flex}")
     print(f"全部速度：{data.speeds.to_list()}")
 except TimeoutError:
@@ -45,7 +45,7 @@ except TimeoutError:
 ### 缓存读取
 
 ```python
-data = hand.speed.get_current_speeds()
+data = hand.speed.get_snapshot()
 if data:
     print(f"速度：{data.speeds.to_list()}")
     print(f"时间戳：{data.timestamp}")
@@ -53,18 +53,21 @@ if data:
 
 ## 流式读取
 
-```python
-q = hand.speed.stream(interval_ms=100, maxsize=10)
-try:
-    for data in q:
-        print(f"速度：{data.speeds.to_list()}")
-finally:
-    hand.speed.stop_streaming()
-```
+通过顶层 `hand.stream()` 统一接收所有传感器事件：
 
-**参数说明**:
-- `interval_ms`: 轮询间隔，单位为毫秒（默认 100）
-- `maxsize`: 队列大小（默认 100），队列满时自动丢弃旧数据
+```python
+from linkerbot.hand.o6 import SensorSource, SpeedEvent
+
+hand.start_polling(sources=[SensorSource.SPEED], interval_ms=100)
+
+for event in hand.stream():
+    match event:
+        case SpeedEvent(data=data):
+            print(f"速度：{data.speeds.to_list()}")
+
+hand.stop_polling()
+hand.stop_stream()
+```
 
 ## RPM 单位转换
 
@@ -106,17 +109,7 @@ with O6(side="left", interface_name="can0") as hand:
     hand.speed.set_speeds(speed)
 
     # 读取当前速度
-    data = hand.speed.get_speeds_blocking(timeout_ms=500)
+    data = hand.speed.get_blocking(timeout_ms=500)
     print(f"当前速度：{data.speeds.to_list()}")
     print(f"RPM: {data.speeds.to_rpm()}")
-
-    # 流式监控
-    q = hand.speed.stream(interval_ms=50)
-    try:
-        for i, data in enumerate(q):
-            print(f"速度：{data.speeds.to_list()}")
-            if i >= 10:
-                break
-    finally:
-        hand.speed.stop_streaming()
 ```

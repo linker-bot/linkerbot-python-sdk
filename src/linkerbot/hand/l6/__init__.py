@@ -7,9 +7,20 @@ via CAN bus communication.
 from .angle import AngleData, L6Angle
 from .current import CurrentData, CurrentManager, L6Current
 from .device_id import DeviceIDManager, DeviceIDs
+from .events import (
+    AngleEvent,
+    CurrentEvent,
+    FaultEvent,
+    ForceSensorEvent,
+    L6Snapshot,
+    SensorEvent,
+    SensorSource,
+    TemperatureEvent,
+    TorqueEvent,
+)
 from .factory_reset import FactoryResetManager
 from .fault import FaultCode, FaultData, FaultManager, L6Fault
-from .force_sensor import ForceSensorData, ForceSensorManager
+from .force_sensor import AllFingersData, ForceSensorData, ForceSensorManager
 from .l6 import L6
 from .limit_compensation import (
     L6LimitCompensation,
@@ -38,12 +49,23 @@ __all__ = [
     "AngleData",
     "TorqueData",
     "ForceSensorData",
+    "AllFingersData",
     "TemperatureData",
     "CurrentData",
     "FaultData",
     "DeviceIDs",
     "DeviceInfo",
     "LimitCompensationData",
+    "L6Snapshot",
+    # Event types
+    "AngleEvent",
+    "TorqueEvent",
+    "TemperatureEvent",
+    "CurrentEvent",
+    "FaultEvent",
+    "ForceSensorEvent",
+    "SensorEvent",
+    "SensorSource",
     # Type classes
     "L6Angle",
     "L6Torque",

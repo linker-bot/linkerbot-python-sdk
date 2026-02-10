@@ -1,18 +1,34 @@
 """L6 robotic hand control interface.
 
 This module provides the main L6 class for controlling the L6 robotic hand
-via CAN bus communication. It integrates angle control and force sensor
-data acquisition into a unified interface.
+via CAN bus communication. It integrates angle control, force sensor
+data acquisition, and unified sensor streaming into a single interface.
 """
 
+import queue
+import threading
+import time
+from collections.abc import Callable
 from typing import Literal
 
 from linkerbot.comm import CANMessageDispatcher
-from linkerbot.exceptions import StateError
+from linkerbot.exceptions import StateError, ValidationError
+from linkerbot.queue import IterableQueue
 
 from .angle import AngleManager
 from .current import CurrentManager
 from .device_id import DeviceIDManager
+from .events import (
+    AngleEvent,
+    CurrentEvent,
+    FaultEvent,
+    ForceSensorEvent,
+    L6Snapshot,
+    SensorEvent,
+    SensorSource,
+    TemperatureEvent,
+    TorqueEvent,
+)
 from .factory_reset import FactoryResetManager
 from .fault import FaultManager
 from .force_sensor import ForceSensorManager
@@ -28,8 +44,8 @@ class L6:
     """Main interface for L6 robotic hand control.
 
     This class provides a unified interface for controlling the L6 robotic hand,
-    integrating angle control, speed control and force sensor data acquisition. It manages the
-    CAN bus connection and coordinates all subsystems.
+    integrating angle control, speed control, sensor data acquisition, and
+    unified sensor streaming.
 
     The L6 class should be used as a context manager to ensure proper resource
     cleanup:
@@ -37,62 +53,27 @@ class L6:
     ```python
     with L6(side='left', interface_name='can0') as hand:
         # Control angles
-        hand.angle.set_angles((10, 20, 30, 40, 50, 60))
+        hand.angle.set_angles([50, 30, 60, 60, 60, 60])
 
-        # Control speeds
-        hand.speed.set_speeds((100, 100, 100, 100, 100, 100))
+        # Start polling sensors
+        hand.start_polling(sources=[SensorSource.ANGLE, SensorSource.TEMPERATURE])
 
-        # Get force sensor data for all fingers
-        all_sensors = hand.force_sensor.get_all_data_blocking(timeout_ms=500)
+        # Read cached data
+        snap = hand.get_snapshot()
+        print(snap.angle, snap.temperature)
 
-        # Get temperature data for all fingers
-        all_temperatures = hand.temperature.get_temperatures_blocking(timeout_ms=500)
+        # Stream all events
+        for event in hand.stream():
+            match event:
+                case AngleEvent(data=ad):
+                    print(f"Angles: {ad.angles}")
+                case TemperatureEvent(data=td):
+                    print(f"Temps: {td.temperatures}")
+            if should_stop():
+                break
 
-        # Get current data for all fingers
-        all_currents = hand.current.get_currents_blocking(timeout_ms=500)
-
-        # Or get data for a specific finger
-        thumb_data = hand.force_sensor.get_finger('thumb').get_data_blocking()
-
-        # Control torques
-        hand.torque.set_torques((100, 150, 200, 180, 160, 140))
-
-        # Clear all faults
-        hand.fault.clear_faults()
-
-        # Read fault status
-        fault_data = hand.fault.get_faults_blocking(timeout_ms=500)
-        if fault_data.faults.has_any_fault():
-            # Check specific joint
-            if fault_data.faults.thumb_flex.has_fault():
-                print(f"Thumb flex: {fault_data.faults.thumb_flex.get_fault_names()}")
-            # Check index finger
-            if fault_data.faults.index.has_fault():
-                print(f"Index: {fault_data.faults.index.get_fault_names()}")
-
-        # Configure stall detection
-        hand.stall.set_stall_time([500.0, 500.0, 500.0, 500.0, 500.0, 500.0])  # 500ms
-        hand.stall.set_stall_threshold([500.0, 500.0, 500.0, 500.0, 500.0, 500.0])  # 500mA
-        hand.stall.set_stall_torque([700.0, 700.0, 700.0, 700.0, 700.0, 700.0])  # 700mA
-
-        # Get device version information
-        device_info = hand.version.get_device_info()
-        print(f"Serial Number: {device_info.serial_number}")
-        print(f"PCB Version: {device_info.pcb_version}")
-        print(f"Firmware Version: {device_info.firmware_version}")
-        print(f"Mechanical Version: {device_info.mechanical_version}")
-
-        # Configure joint limit compensation
-        hand.limit_compensation.set_limit_compensation([50, 30, 60, 60, 60, 60])
-        comp_data = hand.limit_compensation.get_limit_compensation_blocking()
-        print(f"Limit compensation: {comp_data.compensation.thumb_flex}")
-
-        # Configure device CAN IDs
-        device_ids = hand.device_id.set_tx_id(0x10)
-        print(f"TX ID: {device_ids.tx_id}, RX ID: {device_ids.rx_id}")
-
-        # Factory reset (USE WITH CAUTION!)
-        # hand.factory_reset.reset_to_factory()
+        hand.stop_polling()
+        hand.stop_stream()
     ```
 
     Attributes:
@@ -105,9 +86,10 @@ class L6:
         fault: FaultManager instance for fault clearing and status reading.
         stall: StallManager instance for stall detection configuration.
         version: VersionManager instance for device version information.
-        limit_compensation: LimitCompensationManager instance for joint limit compensation configuration.
+        limit_compensation: LimitCompensationManager instance for joint limit compensation.
         device_id: DeviceIDManager instance for device CAN ID configuration.
         factory_reset: FactoryResetManager instance for factory reset operations.
+
     Args:
         side: Side of the hand (left or right, default: left).
         interface_name: Name of the CAN interface (e.g., 'can0', 'vcan0').
@@ -126,10 +108,6 @@ class L6:
             side: Side of the hand (left or right, default: left).
             interface_name: Name of the CAN interface (e.g., 'can0', 'vcan0').
             interface_type: Type of CAN interface backend (default: 'socketcan').
-
-        Note:
-            The CAN dispatcher is automatically started when entering the context manager.
-            Always call close() or use the context manager to ensure proper cleanup.
         """
         # Create CAN message dispatcher
         self._dispatcher = CANMessageDispatcher(
@@ -177,85 +155,183 @@ class L6:
         self.factory_reset = FactoryResetManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
+
         # State tracking
         self._closed = False
+
+        # Unified stream
+        self._unified_queue: IterableQueue[SensorEvent] | None = None
+
+        # Polling
+        self._polling_active = False
+        self._polling_interval_ms: float = 100
+        self._polling_threads: dict[str, threading.Thread] = {}
+
+        self._polling_senders: dict[str, Callable[[], None]] = {
+            "angle": self.angle._send_sense_request,
+            "torque": self.torque._send_sense_request,
+            "temperature": self.temperature._send_sense_request,
+            "current": self.current._send_sense_request,
+            "fault": self.fault._send_fault_request,
+            "force_sensor": self.force_sensor._send_sense_request,
+        }
+
+        # Register event sinks
+        self.angle._set_event_sink(lambda d: self._push_event(AngleEvent(data=d)))
+        self.torque._set_event_sink(lambda d: self._push_event(TorqueEvent(data=d)))
+        self.temperature._set_event_sink(
+            lambda d: self._push_event(TemperatureEvent(data=d))
+        )
+        self.current._set_event_sink(lambda d: self._push_event(CurrentEvent(data=d)))
+        self.fault._set_event_sink(lambda d: self._push_event(FaultEvent(data=d)))
+        self.force_sensor._set_event_sink(
+            lambda d: self._push_event(ForceSensorEvent(data=d))
+        )
 
     def __enter__(self) -> "L6":
         """Enter the context manager.
 
-        The CAN dispatcher is already started in __init__, so this method
-        simply returns self for use in with statements.
-
         Returns:
             Self for use in with statements.
-
-        Example:
-            >>> with L6('left', 'can0') as hand:
-            ...     hand.angle.set_angles((10, 20, 30, 40, 50, 60))
         """
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         """Exit the context manager and clean up resources.
 
-        Args:
-            exc_type: Exception type if an exception occurred.
-            exc_val: Exception value if an exception occurred.
-            exc_tb: Exception traceback if an exception occurred.
-
         Returns:
             False to propagate exceptions.
-
-        Note:
-            This method calls close() to ensure proper resource cleanup.
         """
         self.close()
-        return False  # Don't suppress exceptions
+        return False
+
+    # ===== Unified snapshot =====
+
+    def get_snapshot(self) -> L6Snapshot:
+        """Get all sensor data as a single snapshot (non-blocking).
+
+        Returns:
+            L6Snapshot with the latest cached data from all sensors.
+            Individual fields are None if no data has been received yet.
+        """
+        return L6Snapshot(
+            angle=self.angle.get_snapshot(),
+            torque=self.torque.get_snapshot(),
+            temperature=self.temperature.get_snapshot(),
+            current=self.current.get_snapshot(),
+            fault=self.fault.get_snapshot(),
+            force_sensor=self.force_sensor.get_snapshot(),
+            timestamp=time.time(),
+        )
+
+    # ===== Unified stream =====
+
+    def stream(self, maxsize: int = 100) -> IterableQueue[SensorEvent]:
+        """Start unified event stream, delivering all sensor responses.
+
+        Returns an IterableQueue that receives SensorEvent instances.
+        Use match-case to dispatch by event type.
+
+        Calling stream() again automatically closes the previous queue.
+
+        Args:
+            maxsize: Maximum queue size (default: 100). When full, oldest event is dropped.
+
+        Returns:
+            IterableQueue[SensorEvent] for receiving sensor events.
+        """
+        self._ensure_open()
+        if self._unified_queue is not None:
+            self.stop_stream()
+        self._unified_queue = IterableQueue(maxsize=maxsize)
+        return self._unified_queue
+
+    def stop_stream(self) -> None:
+        """Stop the unified event stream.
+
+        Closes the queue, causing any active for-loop to exit.
+        Idempotent: safe to call multiple times.
+        """
+        if self._unified_queue is None:
+            return
+        self._unified_queue.close()
+        self._unified_queue = None
+
+    # ===== Polling control =====
+
+    def start_polling(
+        self,
+        sources: list[SensorSource] | None = None,
+        interval_ms: float = 100,
+    ) -> None:
+        """Start background polling for sensor data.
+
+        Polling sends periodic query requests to the specified sensors.
+        Responses are cached (readable via get_snapshot()) and pushed
+        to the stream if active.
+
+        Calling start_polling() again automatically stops the previous polling.
+
+        Args:
+            sources: List of sensor sources to poll. None means all sensors.
+            interval_ms: Polling interval in milliseconds (default: 100).
+
+        Raises:
+            ValidationError: If interval_ms is not positive or sources contain invalid values.
+        """
+        self._ensure_open()
+        if interval_ms <= 0:
+            raise ValidationError("interval_ms must be positive")
+        if self._polling_active:
+            self.stop_polling()
+        if sources is None:
+            sources = list(SensorSource)
+        else:
+            for s in sources:
+                if s not in SensorSource:
+                    raise ValidationError(f"Invalid sensor source: {s!r}")
+        self._polling_active = True
+        self._polling_interval_ms = interval_ms
+        for source in sources:
+            t = threading.Thread(
+                target=self._polling_loop,
+                args=(source.value,),
+                daemon=True,
+                name=f"L6-Polling-{source.value}",
+            )
+            t.start()
+            self._polling_threads[source.value] = t
+
+    def stop_polling(self) -> None:
+        """Stop all background polling.
+
+        Idempotent: safe to call multiple times.
+        """
+        self._polling_active = False
+        self._polling_threads.clear()
+
+    # ===== Lifecycle =====
 
     def close(self) -> None:
         """Close the L6 interface and release all resources.
 
         This method is idempotent and safe to call multiple times.
-
-        Example:
-            >>> hand = L6('left', 'can0')
-            >>> hand.angle.set_angles((10, 20, 30, 40, 50, 60))
-            >>> hand.close()  # Clean up resources
         """
         if self._closed:
             return
 
-        try:
-            # Stop streaming modes
-            self.force_sensor.stop_streaming()
-            self.angle.stop_streaming()
-            self.torque.stop_streaming()
-            self.temperature.stop_streaming()
-            self.current.stop_streaming()
-            self.fault.stop_streaming()
-        except Exception:
-            # Ignore errors during cleanup
-            pass
+        self.stop_polling()
+        self.stop_stream()
 
         try:
-            # Stop CAN dispatcher
             self._dispatcher.stop()
         except Exception:
-            # Ignore errors during cleanup
             pass
 
         self._closed = True
 
     def __del__(self) -> None:
-        """Destructor for defensive resource cleanup.
-
-        Calls close() to ensure resources are released if the user
-        forgot to close the interface properly.
-
-        Note:
-            This is a defensive measure. Users should always explicitly
-            close() or use the context manager.
-        """
+        """Destructor for defensive resource cleanup."""
         self.close()
 
     def is_closed(self) -> bool:
@@ -263,12 +339,6 @@ class L6:
 
         Returns:
             True if the interface is closed, False otherwise.
-
-        Example:
-            >>> hand = L6('left', 'can0')
-            >>> print(hand.is_closed())  # False
-            >>> hand.close()
-            >>> print(hand.is_closed())  # True
         """
         return self._closed
 
@@ -277,3 +347,23 @@ class L6:
             raise StateError(
                 "L6 interface is closed. Create a new instance or use context manager."
             )
+
+    # ===== Internal =====
+
+    def _polling_loop(self, source_name: str) -> None:
+        sender = self._polling_senders[source_name]
+        while self._polling_active:
+            sender()
+            time.sleep(self._polling_interval_ms / 1000.0)
+
+    def _push_event(self, event: SensorEvent) -> None:
+        if self._unified_queue is None:
+            return
+        try:
+            self._unified_queue.put_nowait(event)
+        except queue.Full:
+            try:
+                self._unified_queue.get_nowait()
+                self._unified_queue.put_nowait(event)
+            except queue.Empty:
+                pass

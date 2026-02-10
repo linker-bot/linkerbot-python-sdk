@@ -1,6 +1,6 @@
 # 力传感器
 
-O6 灵巧手配备 5 个手指的力传感器（thumb, index, middle, ring, pinky），支持阻塞读取和流式读取两种模式。
+O6 灵巧手配备 5 个手指的力传感器（thumb, index, middle, ring, pinky），支持阻塞读取和缓存读取两种模式。
 
 ## 概述
 
@@ -9,8 +9,8 @@ O6 灵巧手配备 5 个手指的力传感器（thumb, index, middle, ring, pink
 ```python
 from linkerbot import O6
 
-hand = O6(side="left", interface_name="can0")
-data = hand.force_sensor.get_data_blocking()
+with O6(side="left", interface_name="can0") as hand:
+    data = hand.force_sensor.get_data_blocking()
 ```
 
 ### 数据结构
@@ -43,48 +43,43 @@ print(data.index.values)   # 食指数据
 获取最近一次接收的数据（非阻塞）：
 
 ```python
-latest = hand.force_sensor.get_latest_data()
-for finger, data in latest.items():
-    if data:
-        print(f"{finger}: {data.values[0]}")
+data = hand.force_sensor.get_snapshot()
+if data:
+    print(f"拇指：{data.thumb.values[0]}")
+    print(f"食指：{data.index.values[0]}")
 ```
+
+**返回值**: `AllFingersData` 或 `None`（任一手指无数据时）
 
 ## 流式读取
 
-持续接收传感器数据。
+通过顶层 `hand.stream()` 统一接收所有传感器事件：
 
 ```python
-queue = hand.force_sensor.stream(interval_ms=100, maxsize=100)
-try:
-    for data in queue:
-        print(data.thumb.values)
-        if done:
-            break
-finally:
-    hand.force_sensor.stop_streaming()
+from linkerbot.hand.o6 import SensorSource, ForceSensorEvent
+
+hand.start_polling(sources=[SensorSource.FORCE_SENSOR], interval_ms=100)
+
+for event in hand.stream():
+    match event:
+        case ForceSensorEvent(data=data):
+            print(data.thumb.values)
+
+hand.stop_polling()
+hand.stop_stream()
 ```
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `interval_ms` | `float` | 100 | 采样间隔（毫秒） |
-| `maxsize` | `int` | 100 | 队列最大容量 |
-
-**异常**: `StateError`（重复启动）、`ValidationError`（参数无效）
 
 ## 示例
 
-### 读取并判断数据新鲜度
+### 阻塞读取所有手指
 
 ```python
-import time
 from linkerbot import O6
 
-hand = O6(side="left", interface_name="can0")
-latest = hand.force_sensor.get_latest_data()
-
-if latest["thumb"]:
-    age = time.time() - latest["thumb"].timestamp
-    print(f"数据年龄：{age:.3f}s")
+with O6(side="left", interface_name="can0") as hand:
+    data = hand.force_sensor.get_data_blocking(timeout_ms=1000)
+    print(f"拇指：{data.thumb.values.shape}")
+    print(f"食指：{data.index.values.shape}")
 ```
 
 ### 流式采集指定时长
@@ -92,16 +87,20 @@ if latest["thumb"]:
 ```python
 import time
 from linkerbot import O6
+from linkerbot.hand.o6 import SensorSource, ForceSensorEvent
 
-hand = O6(side="left", interface_name="can0")
-queue = hand.force_sensor.stream(interval_ms=50)
-start = time.time()
+with O6(side="left", interface_name="can0") as hand:
+    hand.start_polling(sources=[SensorSource.FORCE_SENSOR], interval_ms=50)
+    start = time.time()
 
-try:
-    for data in queue:
-        print(f"拇指：{data.thumb.values[0]}")
-        if time.time() - start > 5:  # 采集 5 秒
-            break
-finally:
-    hand.force_sensor.stop_streaming()
+    try:
+        for event in hand.stream():
+            match event:
+                case ForceSensorEvent(data=data):
+                    print(f"拇指：{data.thumb.values[0]}")
+            if time.time() - start > 5:  # 采集 5 秒
+                break
+    finally:
+        hand.stop_polling()
+        hand.stop_stream()
 ```

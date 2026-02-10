@@ -38,7 +38,7 @@ hand.torque.set_torques(torques)
 from linkerbot.exceptions import TimeoutError
 
 try:
-    data = hand.torque.get_torques_blocking(timeout_ms=500)
+    data = hand.torque.get_blocking(timeout_ms=500)
     print(f"拇指屈曲：{data.torques.thumb_flex}")
     print(f"全部扭矩：{data.torques.to_list()}")
 except TimeoutError:
@@ -48,7 +48,7 @@ except TimeoutError:
 ### 缓存读取
 
 ```python
-data = hand.torque.get_current_torques()
+data = hand.torque.get_snapshot()
 if data:
     print(f"扭矩：{data.torques.to_list()}")
     print(f"时间戳：{data.timestamp}")
@@ -56,18 +56,21 @@ if data:
 
 ## 流式读取
 
-```python
-q = hand.torque.stream(interval_ms=100, maxsize=10)
-try:
-    for data in q:
-        print(f"扭矩：{data.torques.to_list()}")
-finally:
-    hand.torque.stop_streaming()
-```
+通过顶层 `hand.stream()` 统一接收所有传感器事件：
 
-**参数说明**:
-- `interval_ms`: 轮询间隔，单位为毫秒
-- `maxsize`: 队列大小
+```python
+from linkerbot.hand.o6 import SensorSource, TorqueEvent
+
+hand.start_polling(sources=[SensorSource.TORQUE], interval_ms=100)
+
+for event in hand.stream():
+    match event:
+        case TorqueEvent(data=data):
+            print(f"扭矩：{data.torques.to_list()}")
+
+hand.stop_polling()
+hand.stop_stream()
+```
 
 ## mA 单位转换
 
@@ -102,7 +105,7 @@ with O6(side="left", interface_name="can0") as hand:
     hand.torque.set_torques([50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
 
     # 读取当前扭矩
-    data = hand.torque.get_torques_blocking(timeout_ms=500)
+    data = hand.torque.get_blocking(timeout_ms=500)
     print(f"当前扭矩：{data.torques.to_list()}")
     print(f"对应 mA: {data.torques.to_milliamps()}")
 

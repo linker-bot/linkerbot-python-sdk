@@ -6,7 +6,7 @@ O6 灵巧手的故障检测功能。
 
 通过 `hand.fault` 访问故障管理功能：
 
-- 读取故障状态（阻塞式、流式、缓存）
+- 读取故障状态（阻塞式、缓存）
 
 ## 故障码表
 
@@ -24,7 +24,7 @@ O6 灵巧手的故障检测功能。
 ### 阻塞式读取
 
 ```python
-data = hand.fault.get_faults_blocking(timeout_ms=500)
+data = hand.fault.get_blocking(timeout_ms=500)
 ```
 
 **参数**：
@@ -37,27 +37,34 @@ data = hand.fault.get_faults_blocking(timeout_ms=500)
 **异常**：
 - `TimeoutError`：超时未收到响应
 
-### 流式读取
-
-```python
-q = hand.fault.stream(interval_ms=100, maxsize=100)
-for data in q:
-    # 处理 data
-    pass
-hand.fault.stop_streaming()
-```
-
-**参数**：
-- `interval_ms`：轮询间隔（毫秒），默认 100
-- `maxsize`：队列大小，默认 100
-
 ### 缓存读取
 
 ```python
-data = hand.fault.get_current_faults()
+data = hand.fault.get_snapshot()
 ```
 
 返回最近缓存的故障数据，无数据时返回 `None`。
+
+## 流式读取
+
+通过顶层 `hand.stream()` 统一接收所有传感器事件：
+
+```python
+from linkerbot.hand.o6 import SensorSource, FaultEvent
+
+hand.start_polling(sources=[SensorSource.FAULT], interval_ms=200)
+
+for event in hand.stream():
+    match event:
+        case FaultEvent(data=data):
+            if data.faults.has_any_fault():
+                for code in data.faults.to_list():
+                    if code.has_fault():
+                        print(code.get_fault_names())
+
+hand.stop_polling()
+hand.stop_stream()
+```
 
 ## 故障数据
 
@@ -102,37 +109,40 @@ faults.thumb_flex.get_fault_names()  # -> list[str]
 ```python
 from linkerbot import O6
 
-hand = O6(side="left", interface_name="can0")
+with O6(side="left", interface_name="can0") as hand:
+    # 读取故障状态
+    data = hand.fault.get_blocking(timeout_ms=500)
 
-# 读取故障状态
-data = hand.fault.get_faults_blocking(timeout_ms=500)
-
-if data.faults.has_any_fault():
-    print("检测到故障：")
-    if data.faults.thumb_flex.has_fault():
-        print(f"  拇指弯曲：{data.faults.thumb_flex.get_fault_names()}")
-    if data.faults.index.has_fault():
-        print(f"  食指：{data.faults.index.get_fault_names()}")
-else:
-    print("无故障")
+    if data.faults.has_any_fault():
+        print("检测到故障：")
+        if data.faults.thumb_flex.has_fault():
+            print(f"  拇指弯曲：{data.faults.thumb_flex.get_fault_names()}")
+        if data.faults.index.has_fault():
+            print(f"  食指：{data.faults.index.get_fault_names()}")
+    else:
+        print("无故障")
 ```
 
 ### 持续监控
 
 ```python
 from linkerbot import O6
+from linkerbot.hand.o6 import SensorSource, FaultEvent
 
-hand = O6(side="left", interface_name="can0")
+with O6(side="left", interface_name="can0") as hand:
+    hand.start_polling(sources=[SensorSource.FAULT], interval_ms=200)
 
-q = hand.fault.stream(interval_ms=200, maxsize=100)
-try:
-    for data in q:
-        if data.faults.has_any_fault():
-            for code in data.faults.to_list():
-                if code.has_fault():
-                    print(code.get_fault_names())
-except KeyboardInterrupt:
-    pass
-finally:
-    hand.fault.stop_streaming()
+    try:
+        for event in hand.stream():
+            match event:
+                case FaultEvent(data=data):
+                    if data.faults.has_any_fault():
+                        for code in data.faults.to_list():
+                            if code.has_fault():
+                                print(code.get_fault_names())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        hand.stop_polling()
+        hand.stop_stream()
 ```

@@ -45,7 +45,7 @@ hand.torque.set_torques(target)
 from linkerbot.exceptions import TimeoutError
 
 try:
-    data = hand.torque.get_torques_blocking(timeout_ms=500)
+    data = hand.torque.get_blocking(timeout_ms=500)
     print(f"拇指弯曲：{data.torques.thumb_flex}")
     print(f"食指：{data.torques.index}")
 except TimeoutError:
@@ -57,29 +57,27 @@ except TimeoutError:
 获取最近一次的缓存数据（非阻塞）：
 
 ```python
-data = hand.torque.get_current_torques()
+data = hand.torque.get_snapshot()
 if data:
     print(f"扭矩：{data.torques.to_list()}")
 ```
 
 ## 流式读取
 
-周期性获取扭矩数据。
-
-**参数**：
-- `interval_ms`：轮询间隔（毫秒）
-- `maxsize`：队列大小
+通过顶层 `hand.stream()` 统一接收所有传感器事件：
 
 ```python
-q = hand.torque.stream(interval_ms=50, maxsize=10)
+from linkerbot.hand.l6 import SensorSource, TorqueEvent
 
-try:
-    for data in q:
-        print(f"扭矩：{data.torques.to_list()}")
-        if should_stop:
-            break
-finally:
-    hand.torque.stop_streaming()
+hand.start_polling(sources=[SensorSource.TORQUE], interval_ms=50)
+
+for event in hand.stream():
+    match event:
+        case TorqueEvent(data=data):
+            print(f"扭矩：{data.torques.to_list()}")
+
+hand.stop_polling()
+hand.stop_stream()
 ```
 
 ## 示例
@@ -90,30 +88,32 @@ finally:
 from linkerbot import L6
 from linkerbot.hand.l6 import L6Torque
 
-hand = L6()
+with L6(side="left", interface_name="can0") as hand:
+    # 设置扭矩
+    hand.torque.set_torques([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
 
-# 设置扭矩
-hand.torque.set_torques([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
-
-# 阻塞读取当前扭矩
-data = hand.torque.get_torques_blocking(timeout_ms=200)
-print(f"当前扭矩：{data.torques.to_list()}")
+    # 阻塞读取当前扭矩
+    data = hand.torque.get_blocking(timeout_ms=200)
+    print(f"当前扭矩：{data.torques.to_list()}")
 ```
 
 ### 实时监控
 
 ```python
 from linkerbot import L6
+from linkerbot.hand.l6 import SensorSource, TorqueEvent
 
-hand = L6()
-q = hand.torque.stream(interval_ms=100, maxsize=10)
+with L6(side="left", interface_name="can0") as hand:
+    hand.start_polling(sources=[SensorSource.TORQUE], interval_ms=100)
 
-try:
-    for data in q:
-        # 检测扭矩变化
-        if data.torques.index > 80:
-            print("食指关节电机扭矩过高")
-            break
-finally:
-    hand.torque.stop_streaming()
+    try:
+        for event in hand.stream():
+            match event:
+                case TorqueEvent(data=data):
+                    if data.torques.index > 80:
+                        print("食指关节电机扭矩过高")
+                        break
+    finally:
+        hand.stop_polling()
+        hand.stop_stream()
 ```

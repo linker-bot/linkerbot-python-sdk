@@ -1,9 +1,22 @@
-"""O6 robotic hand control module.
+"""O6 robotic hand control package.
 
-This module provides control interfaces for the O6 robotic hand.
+This package provides the O6 interface for controlling the O6 robotic hand
+via CAN bus communication.
 """
 
-from linkerbot.hand.o6.angle import AngleData, AngleManager, O6Angle
+from linkerbot.hand.o6.angle import AngleData, O6Angle
+from linkerbot.hand.o6.events import (
+    AccelerationEvent,
+    AngleEvent,
+    FaultEvent,
+    ForceSensorEvent,
+    O6Snapshot,
+    SensorEvent,
+    SensorSource,
+    SpeedEvent,
+    TemperatureEvent,
+    TorqueEvent,
+)
 from linkerbot.hand.o6.factory_reset import FactoryResetManager
 from linkerbot.hand.o6.fault import FaultCode, FaultData, FaultManager, O6Fault
 from linkerbot.hand.o6.force_sensor import (
@@ -36,36 +49,49 @@ from linkerbot.hand.o6.torque import O6Torque, TorqueData, TorqueManager
 from linkerbot.hand.o6.version import DeviceInfo, Version, VersionManager
 
 __all__ = [
-    "O6Angle",
-    "AngleData",
-    "AngleManager",
-    "O6Speed",
-    "SpeedData",
-    "SpeedManager",
-    "O6Acceleration",
-    "AccelerationData",
-    "AccelerationManager",
-    "O6Temperature",
-    "TemperatureData",
+    "O6",
+    # Managers
+    "ForceSensorManager",
+    "SingleForceSensorManager",
     "TemperatureManager",
-    "O6Torque",
-    "TorqueData",
-    "TorqueManager",
-    "O6StallThreshold",
-    "O6StallTime",
-    "O6StallTorque",
-    "StallManager",
-    "FaultCode",
-    "O6Fault",
-    "FaultData",
     "FaultManager",
+    "StallManager",
+    "VersionManager",
+    "AccelerationManager",
+    "SpeedManager",
+    "TorqueManager",
+    "FactoryResetManager",
+    # Data containers
+    "AngleData",
+    "TorqueData",
+    "SpeedData",
+    "AccelerationData",
     "ForceSensorData",
     "AllFingersData",
-    "SingleForceSensorManager",
-    "ForceSensorManager",
+    "TemperatureData",
+    "FaultData",
+    "O6Snapshot",
+    # Event types
+    "AngleEvent",
+    "TorqueEvent",
+    "SpeedEvent",
+    "AccelerationEvent",
+    "TemperatureEvent",
+    "FaultEvent",
+    "ForceSensorEvent",
+    "SensorEvent",
+    "SensorSource",
+    # Type classes
+    "O6Angle",
+    "O6Torque",
+    "O6Speed",
+    "O6Acceleration",
+    "O6Temperature",
+    "O6Fault",
+    "O6StallTime",
+    "O6StallThreshold",
+    "O6StallTorque",
+    "FaultCode",
     "Version",
     "DeviceInfo",
-    "VersionManager",
-    "FactoryResetManager",
-    "O6",
 ]

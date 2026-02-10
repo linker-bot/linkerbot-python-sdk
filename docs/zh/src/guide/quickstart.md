@@ -34,7 +34,7 @@ with L6(side="left", interface_name="can0") as hand:
 ```python
 with L6(side="left", interface_name="can0") as hand:
     # 阻塞读取
-    data = hand.angle.get_angles_blocking(timeout_ms=100)
+    data = hand.angle.get_blocking(timeout_ms=100)
     print(f"当前角度：{data.angles.to_list()}")
 
     # 访问单个关节
@@ -56,19 +56,24 @@ with L6(side="left", interface_name="can0") as hand:
 
 ## 流式读取
 
-持续接收数据：
+通过统一事件流持续接收数据：
 
 ```python
-with L6(side="left", interface_name="can0") as hand:
-    queue = hand.angle.stream(interval_ms=100, maxsize=10)
+from linkerbot.hand.l6 import SensorSource, AngleEvent
 
-    for data in queue:
-        print(f"角度：{data.angles.to_list()}")
+with L6(side="left", interface_name="can0") as hand:
+    hand.start_polling(sources=[SensorSource.ANGLE], interval_ms=100)
+
+    for event in hand.stream():
+        match event:
+            case AngleEvent(data=data):
+                print(f"角度：{data.angles.to_list()}")
 
         if should_stop():
             break
 
-    hand.angle.stop_streaming()
+    hand.stop_polling()
+    hand.stop_stream()
 ```
 
 ## 完整示例
@@ -90,8 +95,8 @@ with L6(side="left", interface_name="can0") as hand:
     time.sleep(1)
 
     # 读取状态
-    angles = hand.angle.get_angles_blocking()
-    temps = hand.temperature.get_temperatures_blocking()
+    angles = hand.angle.get_blocking()
+    temps = hand.temperature.get_blocking()
 
     print(f"角度：{angles.angles.to_list()}")
     print(f"温度：{temps.temperatures.to_list()} °C")

@@ -35,7 +35,7 @@ from linkerbot import O6
 from linkerbot.exceptions import TimeoutError
 
 try:
-    data = hand.angle.get_angles_blocking(timeout_ms=500)
+    data = hand.angle.get_blocking(timeout_ms=500)
     print(f"拇指屈曲：{data.angles.thumb_flex}")
     print(f"全部角度：{data.angles.to_list()}")
 except TimeoutError:
@@ -45,7 +45,7 @@ except TimeoutError:
 ### 缓存读取
 
 ```python
-data = hand.angle.get_current_angles()
+data = hand.angle.get_snapshot()
 if data:
     print(f"角度：{data.angles.to_list()}")
     print(f"时间戳：{data.timestamp}")
@@ -53,18 +53,21 @@ if data:
 
 ## 流式读取
 
-```python
-q = hand.angle.stream(interval_ms=100, maxsize=10)
-try:
-    for data in q:
-        print(f"角度：{data.angles.to_list()}")
-finally:
-    hand.angle.stop_streaming()
-```
+通过顶层 `hand.stream()` 统一接收所有传感器事件：
 
-**参数说明**:
-- `interval_ms`: 轮询间隔，单位为毫秒
-- `maxsize`: 队列大小
+```python
+from linkerbot.hand.o6 import SensorSource, AngleEvent
+
+hand.start_polling(sources=[SensorSource.ANGLE], interval_ms=100)
+
+for event in hand.stream():
+    match event:
+        case AngleEvent(data=data):
+            print(f"角度：{data.angles.to_list()}")
+
+hand.stop_polling()
+hand.stop_stream()
+```
 
 ## 完整示例
 
@@ -76,7 +79,7 @@ with O6(side="left", interface_name="can0") as hand:
     hand.angle.set_angles([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
     # 读取当前角度
-    data = hand.angle.get_angles_blocking(timeout_ms=500)
+    data = hand.angle.get_blocking(timeout_ms=500)
     print(f"当前角度：{data.angles.to_list()}")
 
     # 渐进移动

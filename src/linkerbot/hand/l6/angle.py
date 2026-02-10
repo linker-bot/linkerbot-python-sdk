@@ -4,16 +4,15 @@ This module provides the AngleManager class for controlling joint angles
 and reading angle sensor data via CAN bus communication.
 """
 
-import queue
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import can
 
 from linkerbot.comm import CANMessageDispatcher
-from linkerbot.exceptions import StateError, TimeoutError, ValidationError
-from linkerbot.queue import IterableQueue
+from linkerbot.exceptions import TimeoutError, ValidationError
 
 
 @dataclass
@@ -127,11 +126,10 @@ class AngleData:
 class AngleManager:
     """Manager for joint angle control and sensing.
 
-    This class provides four access modes for angle operations:
+    This class provides three access modes for angle operations:
     1. Angle control: set_angles() - send 6 target angles and cache response
-    2. Blocking mode: get_angles_blocking() - request and wait for 6 current angles
-    3. Streaming mode: stream() - continuous polling with Queue-based delivery
-    4. Cache reading: get_current_angles() - non-blocking read of cached angles
+    2. Blocking mode: get_blocking() - request and wait for 6 current angles
+    3. Cache reading: get_snapshot() - non-blocking read of cached angles
     """
 
     _CONTROL_CMD = 0x01
@@ -156,17 +154,15 @@ class AngleManager:
         self._blocking_waiters: list[tuple[threading.Event, dict]] = []
         self._waiters_lock = threading.Lock()
 
-        # Streaming mode support
-        self._streaming_queue: IterableQueue[AngleData] | None = None
-        self._streaming_timer: threading.Thread | None = None
-        self._streaming_interval_ms: float | None = None
+        # Event sink for unified stream
+        self._event_sink: Callable[[AngleData], None] | None = None
 
     def set_angles(self, angles: L6Angle | list[float]) -> None:
         """Send target angles to the robotic hand.
 
         This method sends 6 target angles to the hand. The hand will respond
         with the current angles, which are automatically cached and can be
-        retrieved via get_current_angles().
+        retrieved via get_snapshot().
 
         Args:
             angles: L6Angle instance or list of 6 target angles (range 0-100 each).
@@ -176,15 +172,9 @@ class AngleManager:
 
         Example:
             >>> manager = AngleManager(arbitration_id, dispatcher)
-            >>> # Using L6Angle instance
             >>> manager.set_angles(L6Angle(thumb_flex=50.0, thumb_abd=30.0,
             ...                            index=60.0, middle=60.0, ring=60.0, pinky=60.0))
-            >>> # Using list
             >>> manager.set_angles([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
-            >>> time.sleep(0.1)  # Wait for response
-            >>> current = manager.get_current_angles()
-            >>> if current:
-            ...     print(f"Current angles: {current.angles.thumb_flex}")
         """
         if isinstance(angles, L6Angle):
             raw_angles = angles.to_raw()
@@ -200,12 +190,11 @@ class AngleManager:
         )
         self._dispatcher.send(msg)
 
-    def get_angles_blocking(self, timeout_ms: float = 100) -> AngleData:
+    def get_blocking(self, timeout_ms: float = 100) -> AngleData:
         """Request and wait for current joint angles (blocking).
 
         This method sends a sensing request and blocks until 6 current angles
-        are received or the timeout expires. If streaming mode is active, this
-        method may receive data from streaming requests.
+        are received or the timeout expires.
 
         Args:
             timeout_ms: Maximum time to wait in milliseconds (default: 100).
@@ -218,12 +207,8 @@ class AngleManager:
             ValidationError: If timeout_ms is not positive.
 
         Example:
-            >>> manager = AngleManager(arbitration_id, dispatcher)
-            >>> try:
-            ...     data = manager.get_angles_blocking(timeout_ms=500)
-            ...     print(f"Current angles: {data.angles}")
-            ... except TimeoutError:
-            ...     print("Request timed out")
+            >>> data = manager.get_blocking(timeout_ms=500)
+            >>> print(f"Current angles: {data.angles}")
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
@@ -235,9 +220,7 @@ class AngleManager:
         with self._waiters_lock:
             self._blocking_waiters.append((event, result_holder))
 
-        # Send request only if not streaming (streaming already sends periodically)
-        if self._streaming_queue is None:
-            self._send_sense_request()
+        self._send_sense_request()
 
         # Wait for data or timeout
         if event.wait(timeout_ms / 1000.0):
@@ -251,107 +234,21 @@ class AngleManager:
                     self._blocking_waiters.remove((event, result_holder))
             raise TimeoutError(f"No angle data received within {timeout_ms}ms")
 
-    def get_current_angles(self) -> AngleData | None:
+    def get_snapshot(self) -> AngleData | None:
         """Get the most recent cached angle data (non-blocking).
-
-        This method returns the last received angle data (either from set_angles()
-        response or get_angles_blocking() response) without sending any new requests.
 
         Returns:
             AngleData instance or None if no data received yet.
 
         Example:
-            >>> data = manager.get_current_angles()
+            >>> data = manager.get_snapshot()
             >>> if data:
-            ...     age = time.time() - data.timestamp
-            ...     if age < 0.1:  # Less than 100ms old
-            ...         print(f"Fresh angles: {data.angles}")
+            ...     print(f"Fresh angles: {data.angles}")
         """
         return self._latest_data
 
-    def stream(
-        self, interval_ms: float = 100, maxsize: int = 100
-    ) -> IterableQueue[AngleData]:
-        """Start streaming mode with periodic angle requests.
-
-        Creates an IterableQueue and starts a background thread that periodically requests
-        angle data. Complete data is automatically pushed to the queue.
-
-        The returned queue supports for-loop iteration and blocks when empty (like Go channels).
-
-        Args:
-            interval_ms: Request interval in milliseconds (default: 100).
-            maxsize: Maximum queue size (default: 100). When full, oldest data is dropped.
-
-        Returns:
-            IterableQueue[AngleData] instance for receiving AngleData.
-
-        Raises:
-            StateError: If streaming is already active.
-            ValidationError: If interval_ms is not positive or maxsize is not positive.
-
-        Example:
-            >>> manager = AngleManager(arbitration_id, dispatcher)
-            >>> q = manager.stream(interval_ms=100)
-            >>> try:
-            ...     # Method 1: For-loop iteration (blocks when empty)
-            ...     for data in q:
-            ...         print(f"Angles: {data.angles}")
-            ... finally:
-            ...     manager.stop_streaming()
-            >>>
-            >>> # Method 2: Manual get() calls
-            >>> q = manager.stream(interval_ms=100)
-            >>> try:
-            ...     while True:
-            ...         data = q.get(timeout=1.0)
-            ...         print(f"Angles: {data.angles}")
-            ... finally:
-            ...     manager.stop_streaming()
-        """
-        if interval_ms <= 0:
-            raise ValidationError("interval_ms must be positive")
-        if maxsize <= 0:
-            raise ValidationError("maxsize must be positive")
-
-        if self._streaming_queue is not None:
-            raise StateError(
-                "Streaming is already active. Call stop_streaming() first."
-            )
-
-        # Create queue and configure streaming
-        self._streaming_queue = IterableQueue(maxsize=maxsize)
-        self._streaming_interval_ms = interval_ms
-
-        # Start background thread for periodic requests
-        self._streaming_timer = threading.Thread(
-            target=self._streaming_loop, daemon=True, name="AngleManager-Streaming"
-        )
-        self._streaming_timer.start()
-
-        return self._streaming_queue
-
-    def stop_streaming(self) -> None:
-        """Stop streaming mode and clean up resources.
-
-        Stops the background request thread and closes the queue, which will
-        end any for-loop iteration. This method is idempotent and safe to call
-        multiple times.
-
-        Example:
-            >>> manager.stop_streaming()
-        """
-        if self._streaming_queue is None:
-            return
-
-        # Signal thread to stop by clearing the timer reference
-        self._streaming_timer = None
-
-        # Close the queue to signal end of iteration
-        self._streaming_queue.close()
-
-        self._streaming_queue = None
-        self._streaming_interval_ms = None
+    def _set_event_sink(self, sink: Callable[[AngleData], None]) -> None:
+        self._event_sink = sink
 
     def _send_sense_request(self) -> None:
         msg = can.Message(
@@ -360,13 +257,6 @@ class AngleManager:
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
-
-    def _streaming_loop(self) -> None:
-        if self._streaming_interval_ms is None:
-            raise StateError("Streaming is not active. Call stream() first.")
-        while self._streaming_timer is not None:
-            self._send_sense_request()
-            time.sleep(self._streaming_interval_ms / 1000.0)
 
     def _on_message(self, msg: can.Message) -> None:
         # Filter: only process messages with correct arbitration ID
@@ -399,15 +289,6 @@ class AngleManager:
                 event.set()
             self._blocking_waiters.clear()
 
-        # Push to streaming queue if active
-        if self._streaming_queue is None:
-            return
-        try:
-            self._streaming_queue.put_nowait(data)
-        except queue.Full:
-            # Queue full - remove oldest and try again
-            try:
-                self._streaming_queue.get_nowait()
-                self._streaming_queue.put_nowait(data)
-            except queue.Empty:
-                pass  # Race condition: queue was emptied by consumer
+        # Push to unified event sink
+        if self._event_sink is not None:
+            self._event_sink(data)

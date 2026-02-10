@@ -22,10 +22,9 @@ hand.speed.set_speeds(speeds)
 ```python
 from linkerbot import L6
 
-hand = L6()
-
-# 所有手指设为中速
-hand.speed.set_speeds([50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
+with L6(side="left", interface_name="can0") as hand:
+    # 所有手指设为中速
+    hand.speed.set_speeds([50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
 ```
 
 ### L6Speed 方式
@@ -34,16 +33,15 @@ hand.speed.set_speeds([50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
 from linkerbot import L6
 from linkerbot.hand.l6 import L6Speed
 
-hand = L6()
-
-# 拇指慢速，其他手指快速
-speed = L6Speed(
-    thumb_flex=30.0,
-    thumb_abd=30.0,
-    index=80.0,
-    middle=80.0,
-    ring=80.0,
-    pinky=80.0
-)
-hand.speed.set_speeds(speed)
+with L6(side="left", interface_name="can0") as hand:
+    # 拇指慢速，其他手指快速
+    speed = L6Speed(
+        thumb_flex=30.0,
+        thumb_abd=30.0,
+        index=80.0,
+        middle=80.0,
+        ring=80.0,
+        pinky=80.0
+    )
+    hand.speed.set_speeds(speed)
 ```

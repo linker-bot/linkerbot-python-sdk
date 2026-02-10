@@ -6,10 +6,9 @@ This module provides force sensor management for the L6 robotic hand:
 - ForceSensorManager: Manages all 5 fingers' force sensors (thumb, index, middle, ring, pinky).
 """
 
-import queue
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 import can
@@ -17,8 +16,7 @@ import numpy as np
 import numpy.typing as npt
 
 from linkerbot.comm import CANMessageDispatcher
-from linkerbot.exceptions import StateError, TimeoutError, ValidationError
-from linkerbot.queue import IterableQueue
+from linkerbot.exceptions import TimeoutError, ValidationError
 
 
 @dataclass(frozen=True)
@@ -80,10 +78,9 @@ class FrameBatch:
 class SingleForceSensorManager:
     """Manager for a single finger's force sensor data acquisition.
 
-    This class provides three access modes for force sensor operations:
+    This class provides two access modes for force sensor operations:
     1. Blocking mode: get_data_blocking() - wait for next complete data with timeout
-    2. Streaming mode: stream() - continuous polling with Queue-based delivery
-    3. Cache mode: get_latest_data() - non-blocking read of most recent data
+    2. Cache mode: get_snapshot() - non-blocking read of most recent data
     """
 
     _FRAME_COUNT = 12
@@ -119,17 +116,14 @@ class SingleForceSensorManager:
         self._blocking_waiters: list[tuple[threading.Event, dict]] = []
         self._waiters_lock = threading.Lock()
 
-        # Streaming mode support
-        self._streaming_queue: IterableQueue[ForceSensorData] | None = None
-        self._streaming_timer: threading.Thread | None = None
-        self._streaming_interval_ms: float | None = None
+        # Event sink for unified stream
+        self._event_sink: Callable[[ForceSensorData], None] | None = None
 
     def get_data_blocking(self, timeout_ms: float = 1000) -> ForceSensorData:
         """Get force sensor data with blocking wait.
 
         This method registers a waiter and blocks until complete sensor data
-        is received or the timeout expires. If streaming mode is active, this
-        method may receive data from streaming requests.
+        is received or the timeout expires.
 
         Args:
             timeout_ms: Maximum time to wait in milliseconds (default: 1000).
@@ -142,12 +136,8 @@ class SingleForceSensorManager:
             ValidationError: If timeout_ms is not positive.
 
         Example:
-            >>> manager = ForceSensorManager(arbitration_id, dispatcher)
-            >>> try:
-            ...     data = manager.get_data_blocking(timeout_ms=500)
-            ...     print(f"Received {len(data.values)} bytes")
-            ... except TimeoutError:
-            ...     print("Request timed out")
+            >>> data = manager.get_data_blocking(timeout_ms=500)
+            >>> print(f"Received {len(data.values)} bytes")
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
@@ -173,108 +163,21 @@ class SingleForceSensorManager:
                     self._blocking_waiters.remove((event, result_holder))
             raise TimeoutError(f"No data received within {timeout_ms}ms")
 
-    def stream(
-        self, interval_ms: float = 100, maxsize: int = 100
-    ) -> IterableQueue[ForceSensorData]:
-        """Start streaming mode with periodic data requests.
-
-        Creates an IterableQueue and starts a background thread that periodically requests
-        sensor data. Complete data is automatically pushed to the Queue.
-
-        The returned queue supports for-loop iteration and blocks when empty (like Go channels).
-
-        Args:
-            interval_ms: Request interval in milliseconds (default: 100).
-            maxsize: Maximum Queue size (default: 100). When full, oldest data is dropped.
-
-        Returns:
-            IterableQueue[ForceSensorData] instance for receiving ForceSensorData.
-
-        Raises:
-            StateError: If streaming is already active.
-            ValidationError: If interval_ms is not positive or maxsize is not positive.
-
-        Example:
-            >>> manager = SingleForceSensorManager(arbitration_id, dispatcher, 0xB1)
-            >>> q = manager.stream(interval_ms=100)
-            >>> try:
-            ...     # Method 1: For-loop iteration (blocks when empty)
-            ...     for data in q:
-            ...         process(data)
-            ... finally:
-            ...     manager.stop_streaming()
-            >>>
-            >>> # Method 2: Manual get() calls
-            >>> q = manager.stream(interval_ms=100)
-            >>> try:
-            ...     while True:
-            ...         data = q.get(timeout=1.0)
-            ...         process(data)
-            ... finally:
-            ...     manager.stop_streaming()
-        """
-        if interval_ms <= 0:
-            raise ValidationError("interval_ms must be positive")
-        if maxsize <= 0:
-            raise ValidationError("maxsize must be positive")
-
-        if self._streaming_queue is not None:
-            raise StateError(
-                "Streaming is already active. Call stop_streaming() first."
-            )
-
-        # Create queue and configure streaming
-        self._streaming_queue = IterableQueue(maxsize=maxsize)
-        self._streaming_interval_ms = interval_ms
-
-        # Start background thread for periodic requests
-        self._streaming_timer = threading.Thread(
-            target=self._streaming_loop, daemon=True, name="ForceSensor-Streaming"
-        )
-        self._streaming_timer.start()
-
-        return self._streaming_queue
-
-    def stop_streaming(self) -> None:
-        """Stop streaming mode and clean up resources.
-
-        Stops the background request thread and closes the Queue, which will
-        end any for-loop iteration. This method is idempotent and safe to call
-        multiple times.
-
-        Example:
-            >>> manager.stop_streaming()
-        """
-        if self._streaming_queue is None:
-            return
-
-        # Signal thread to stop by clearing the timer reference
-        self._streaming_timer = None
-
-        # Close the queue to signal end of iteration
-        self._streaming_queue.close()
-
-        self._streaming_queue = None
-        self._streaming_interval_ms = None
-
-    def get_latest_data(self) -> ForceSensorData | None:
+    def get_snapshot(self) -> ForceSensorData | None:
         """Get the most recent cached sensor data (non-blocking).
-
-        This method returns the last complete sensor data that was received,
-        without sending any new requests. It returns None if no data has been
-        received yet.
 
         Returns:
             Latest ForceSensorData or None if no data received yet.
 
         Example:
-            >>> data = manager.get_latest_data()
+            >>> data = manager.get_snapshot()
             >>> if data:
-            ...     age = time.time() - data.timestamp
-            ...     if age < 0.1:  # Less than 100ms old
-            ...         print("Data is fresh")
+            ...     print("Data is available")
         """
         return self._latest_data
+
+    def _set_event_sink(self, sink: Callable[[ForceSensorData], None]) -> None:
+        self._event_sink = sink
 
     def _send_request(self) -> None:
         msg = can.Message(
@@ -283,13 +186,6 @@ class SingleForceSensorManager:
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
-
-    def _streaming_loop(self) -> None:
-        if self._streaming_interval_ms is None:
-            raise StateError("Streaming is not active. Call stream() first.")
-        while self._streaming_timer is not None:
-            self._send_request()
-            time.sleep(self._streaming_interval_ms / 1000.0)
 
     def _on_message(self, msg: can.Message) -> None:
         # Filter: only process messages with correct arbitration ID
@@ -331,18 +227,9 @@ class SingleForceSensorManager:
                 event.set()
             self._blocking_waiters.clear()
 
-        # Push to streaming queue if active
-        if self._streaming_queue is None:
-            return
-        try:
-            self._streaming_queue.put_nowait(data)
-        except queue.Full:
-            # Queue full - remove oldest and try again
-            try:
-                self._streaming_queue.get_nowait()
-                self._streaming_queue.put_nowait(data)
-            except queue.Empty:
-                pass  # Race condition: queue was emptied by consumer
+        # Push to event sink
+        if self._event_sink is not None:
+            self._event_sink(data)
 
 
 class ForceSensorManager:
@@ -380,19 +267,18 @@ class ForceSensorManager:
             for finger_name, cmd_prefix in self.FINGER_COMMANDS.items()
         }
 
-        # Unified streaming mode support
-        self._streaming_queue: IterableQueue[AllFingersData] | None = None
-        self._aggregation_thread: threading.Thread | None = None
-        self._finger_queues: dict[str, IterableQueue[ForceSensorData]] | None = None
+        # Event sink for unified stream
+        self._event_sink: Callable[[AllFingersData], None] | None = None
+        self._sink_latest: dict[str, ForceSensorData] = {}
 
     def get_data_blocking(self, timeout_ms: float = 1000) -> AllFingersData:
         """Get force sensor data for all fingers with blocking wait.
 
-        This method requests data from all fingers and waits for all responses.
-        Each finger is queried independently.
+        All 5 fingers are queried in parallel. The timeout applies to the
+        entire operation rather than to each finger individually.
 
         Args:
-            timeout_ms: Maximum time to wait per finger in milliseconds (default: 1000).
+            timeout_ms: Maximum total time to wait in milliseconds (default: 1000).
 
         Returns:
             AllFingersData containing force sensor data from all 5 fingers.
@@ -402,207 +288,118 @@ class ForceSensorManager:
             ValidationError: If timeout_ms is not positive.
 
         Example:
-            >>> manager = ForceSensorManager(arbitration_id, dispatcher)
             >>> all_data = manager.get_data_blocking(timeout_ms=500)
             >>> print(f"Thumb force: {all_data.thumb.values[0]}")
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
 
-        return AllFingersData(
-            thumb=self._fingers["thumb"].get_data_blocking(timeout_ms=timeout_ms),
-            index=self._fingers["index"].get_data_blocking(timeout_ms=timeout_ms),
-            middle=self._fingers["middle"].get_data_blocking(timeout_ms=timeout_ms),
-            ring=self._fingers["ring"].get_data_blocking(timeout_ms=timeout_ms),
-            pinky=self._fingers["pinky"].get_data_blocking(timeout_ms=timeout_ms),
-        )
+        deadline = time.monotonic() + timeout_ms / 1000.0
+        results: dict[str, ForceSensorData] = {}
+        errors: list[str] = []
 
-    def stream(
-        self, interval_ms: float = 100, maxsize: int = 100
-    ) -> IterableQueue[AllFingersData]:
-        """Start streaming mode for all fingers with unified data delivery.
-
-        Creates a single IterableQueue and starts streaming for each finger independently.
-        A background aggregation thread monitors all finger queues and combines their data
-        into complete snapshots (AllFingersData) pushed to the unified queue.
-
-        The returned queue supports for-loop iteration and blocks when empty (like Go channels).
-
-        Args:
-            interval_ms: Request interval in milliseconds (default: 100).
-            maxsize: Maximum Queue size (default: 100). When full, oldest data is dropped.
-
-        Returns:
-            IterableQueue[AllFingersData] instance for receiving AllFingersData.
-            Each item in the queue is a complete snapshot of all 5 fingers.
-
-        Raises:
-            StateError: If streaming is already active.
-            ValidationError: If interval_ms or maxsize is not positive.
-
-        Example:
-            >>> manager = ForceSensorManager(arbitration_id, dispatcher)
-            >>> q = manager.stream(interval_ms=100)
-            >>> try:
-            ...     # For-loop iteration (blocks when empty)
-            ...     for all_data in q:
-            ...         print(f"Thumb: {all_data.thumb.values[0]}")
-            ...         print(f"Index: {all_data.index.values[0]}")
-            ...         # Process data from all 5 fingers together
-            ... finally:
-            ...     manager.stop_streaming()
-            >>>
-            >>> # Method 2: Manual get() calls
-            >>> q = manager.stream(interval_ms=100)
-            >>> try:
-            ...     while True:
-            ...         all_data = q.get(timeout=1.0)
-            ...         print(f"Thumb timestamp: {all_data.thumb.timestamp}")
-            ... finally:
-            ...     manager.stop_streaming()
-        """
-        if interval_ms <= 0:
-            raise ValidationError("interval_ms must be positive")
-        if maxsize <= 0:
-            raise ValidationError("maxsize must be positive")
-
-        if self._streaming_queue is not None:
-            raise StateError(
-                "Streaming is already active. Call stop_streaming() first."
-            )
-
-        # Create unified output queue
-        self._streaming_queue = IterableQueue(maxsize=maxsize)
-
-        # Start streaming for each finger independently
-        self._finger_queues = {}
-        for finger_name, sensor in self._fingers.items():
-            self._finger_queues[finger_name] = sensor.stream(
-                interval_ms=interval_ms, maxsize=maxsize
-            )
-
-        # Start aggregation thread to combine data from all fingers
-        self._aggregation_thread = threading.Thread(
-            target=self._aggregation_loop,
-            daemon=True,
-            name="ForceSensorManager-Aggregation",
-        )
-        self._aggregation_thread.start()
-
-        return self._streaming_queue
-
-    def stop_streaming(self) -> None:
-        """Stop streaming mode.
-
-        Stops all finger streaming, the aggregation thread, and closes the queue,
-        which will end any for-loop iteration. This method is idempotent and safe
-        to call multiple times.
-
-        Example:
-            >>> manager.stop_streaming()
-        """
-        if self._streaming_queue is None:
-            return
-
-        # Stop streaming for all fingers
-        for sensor in self._fingers.values():
-            sensor.stop_streaming()
-
-        # Signal aggregation thread to stop
-        self._aggregation_thread = None
-
-        # Close the unified queue to signal end of iteration
-        self._streaming_queue.close()
-
-        self._streaming_queue = None
-        self._finger_queues = None
-
-    def _aggregation_loop(self) -> None:
-        if self._finger_queues is None:
-            raise StateError("Streaming is not active. Call stream() first.")
-
-        intermediate_queue: queue.Queue = queue.Queue()
-
-        def read_finger_queue(
-            finger_name: str, finger_queue: IterableQueue[ForceSensorData]
-        ) -> None:
-            try:
-                for data in finger_queue:
-                    intermediate_queue.put((finger_name, data))
-            except StopIteration:
+        def fetch(name: str, sensor: SingleForceSensorManager) -> None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                errors.append(name)
                 return
+            try:
+                results[name] = sensor.get_data_blocking(timeout_ms=remaining * 1000)
+            except TimeoutError:
+                errors.append(name)
 
-        # Start a thread for each finger to concurrently wait for data
-        reader_threads = []
-        for finger_name, finger_queue in self._finger_queues.items():
-            thread = threading.Thread(
-                target=read_finger_queue,
-                args=(finger_name, finger_queue),
-                daemon=True,
-                name=f"FingerReader-{finger_name}",
-            )
-            thread.start()
-            reader_threads.append(thread)
+        threads = []
+        for name, sensor in self._fingers.items():
+            t = threading.Thread(target=fetch, args=(name, sensor), daemon=True)
+            t.start()
+            threads.append(t)
 
-        # Aggregation: collect data from intermediate queue and assemble complete snapshots
-        latest_data: dict[str, ForceSensorData] = {}
+        for t in threads:
+            remaining = max(0, deadline - time.monotonic())
+            t.join(timeout=remaining)
 
-        try:
-            while self._aggregation_thread is not None:
-                # Blocking wait for next finger data
-                finger_name, data = intermediate_queue.get(timeout=1.0)
-                latest_data[finger_name] = data
+        if errors:
+            raise TimeoutError(f"Force sensor timeout for: {', '.join(errors)}")
+        if len(results) != 5:
+            missing = set(self._fingers) - set(results)
+            raise TimeoutError(f"Force sensor timeout for: {', '.join(missing)}")
 
-                # If we have data from all 5 fingers, create AllFingersData snapshot
-                if len(latest_data) == 5:
-                    complete_snapshot = AllFingersData(
-                        thumb=latest_data["thumb"],
-                        index=latest_data["index"],
-                        middle=latest_data["middle"],
-                        ring=latest_data["ring"],
-                        pinky=latest_data["pinky"],
-                    )
+        return AllFingersData(
+            thumb=results["thumb"],
+            index=results["index"],
+            middle=results["middle"],
+            ring=results["ring"],
+            pinky=results["pinky"],
+        )
 
-                    # Push to unified queue
-                    if self._streaming_queue is not None:
-                        try:
-                            self._streaming_queue.put_nowait(complete_snapshot)
-                        except queue.Full:
-                            # Queue full - remove oldest and try again
-                            try:
-                                self._streaming_queue.get_nowait()
-                                self._streaming_queue.put_nowait(complete_snapshot)
-                            except queue.Empty:
-                                pass  # Race condition: queue was emptied by consumer
-
-                    # Clear latest_data to start collecting next snapshot
-                    latest_data.clear()
-
-        except queue.Empty:
-            # Timeout waiting for data, check if we should continue
-            pass
-        except Exception:
-            # Any unexpected error, exit gracefully
-            return
-
-    def get_latest_data(self) -> dict[str, ForceSensorData | None]:
+    def get_snapshot(self) -> AllFingersData | None:
         """Get the most recent cached sensor data for all fingers (non-blocking).
 
-        This method returns the last complete sensor data that was received for
-        each finger, without sending any new requests.
+        Returns AllFingersData only when all 5 fingers have data.
+        Returns None if any finger has no data yet.
 
         Returns:
-            Dictionary mapping finger names to their latest ForceSensorData or None.
+            AllFingersData or None if not all fingers have data.
 
         Example:
-            >>> all_data = manager.get_all_latest_data()
-            >>> for finger, data in all_data.items():
-            ...     if data:
-            ...         print(f"{finger}: {len(data.values)} bytes")
-            ...     else:
-            ...         print(f"{finger}: No data yet")
+            >>> data = manager.get_snapshot()
+            >>> if data:
+            ...     print(f"Thumb: {data.thumb.values.shape}")
         """
-        return {
-            finger_name: sensor.get_latest_data()
-            for finger_name, sensor in self._fingers.items()
-        }
+        thumb = self._fingers["thumb"].get_snapshot()
+        index = self._fingers["index"].get_snapshot()
+        middle = self._fingers["middle"].get_snapshot()
+        ring = self._fingers["ring"].get_snapshot()
+        pinky = self._fingers["pinky"].get_snapshot()
+        if (
+            thumb is None
+            or index is None
+            or middle is None
+            or ring is None
+            or pinky is None
+        ):
+            return None
+        return AllFingersData(
+            thumb=thumb,
+            index=index,
+            middle=middle,
+            ring=ring,
+            pinky=pinky,
+        )
+
+    def get_finger(self, name: str) -> SingleForceSensorManager:
+        """Get the SingleForceSensorManager for a specific finger.
+
+        Args:
+            name: Finger name ('thumb', 'index', 'middle', 'ring', 'pinky').
+
+        Returns:
+            SingleForceSensorManager for the specified finger.
+
+        Raises:
+            KeyError: If finger name is invalid.
+        """
+        return self._fingers[name]
+
+    def _set_event_sink(self, sink: Callable[[AllFingersData], None]) -> None:
+        self._event_sink = sink
+        self._sink_latest = {}
+        for name, sensor in self._fingers.items():
+            sensor._set_event_sink(lambda data, n=name: self._on_finger_data(n, data))
+
+    def _on_finger_data(self, name: str, data: ForceSensorData) -> None:
+        self._sink_latest[name] = data
+        if len(self._sink_latest) == 5:
+            snapshot = AllFingersData(
+                thumb=self._sink_latest["thumb"],
+                index=self._sink_latest["index"],
+                middle=self._sink_latest["middle"],
+                ring=self._sink_latest["ring"],
+                pinky=self._sink_latest["pinky"],
+            )
+            if self._event_sink is not None:
+                self._event_sink(snapshot)
+
+    def _send_sense_request(self) -> None:
+        for sensor in self._fingers.values():
+            sensor._send_request()

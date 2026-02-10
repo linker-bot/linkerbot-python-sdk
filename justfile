@@ -2,20 +2,20 @@ current_branch := `git branch --show-current`
 
 [group('python')]
 update:
-    uvx uv-bump
+    uv run uv-bump
     uv sync
 
 [group('lint')]
 lint:
     uv sync --all-groups
-    uvx ruff check .
-    uvx ruff format --check --diff .
-    uvx ty check .
+    uv run ruff check .
+    uv run ruff format --check --diff .
+    uv run ty check .
 
 [group('lint')]
 fix-lint:
-    uvx ruff check --fix --unsafe-fixes .
-    uvx ruff format .
+    uv run ruff check --fix --unsafe-fixes .
+    uv run ruff format .
 
 [group('git')]
 switch:

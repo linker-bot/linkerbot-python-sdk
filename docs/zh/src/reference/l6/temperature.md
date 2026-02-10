@@ -20,7 +20,7 @@
 ### 阻塞读取
 
 ```python
-data = hand.temperature.get_temperatures_blocking(timeout_ms=500)
+data = hand.temperature.get_blocking(timeout_ms=500)
 print(f"拇指温度：{data.temperatures.thumb_flex}°C")
 ```
 
@@ -38,7 +38,7 @@ print(f"拇指温度：{data.temperatures.thumb_flex}°C")
 非阻塞读取最近一次缓存的温度数据。
 
 ```python
-data = hand.temperature.get_current_temperatures()
+data = hand.temperature.get_snapshot()
 if data:
     print(f"温度：{data.temperatures.to_list()}")
 ```
@@ -48,24 +48,21 @@ if data:
 
 ## 流式读取
 
-持续获取温度数据。
+通过顶层 `hand.stream()` 统一接收所有传感器事件：
 
 ```python
-queue = hand.temperature.stream(interval_ms=100, maxsize=100)
+from linkerbot.hand.l6 import SensorSource, TemperatureEvent
 
-try:
-    for data in queue:
-        print(f"温度：{data.temperatures.to_list()}")
-finally:
-    hand.temperature.stop_streaming()
+hand.start_polling(sources=[SensorSource.TEMPERATURE], interval_ms=100)
+
+for event in hand.stream():
+    match event:
+        case TemperatureEvent(data=data):
+            print(f"温度：{data.temperatures.to_list()}")
+
+hand.stop_polling()
+hand.stop_stream()
 ```
-
-**参数**
-- `interval_ms`: 轮询间隔（毫秒），默认 100
-- `maxsize`: 队列大小，默认 100
-
-**异常**
-- `StateError`: 流式模式已激活
 
 ## 示例
 
@@ -75,7 +72,7 @@ finally:
 from linkerbot import L6
 
 with L6(side='left', interface_name='can0') as hand:
-    data = hand.temperature.get_temperatures_blocking(timeout_ms=500)
+    data = hand.temperature.get_blocking(timeout_ms=500)
 
     # 按属性访问
     print(f"拇指屈曲：{data.temperatures.thumb_flex}°C")
@@ -93,17 +90,21 @@ with L6(side='left', interface_name='can0') as hand:
 
 ```python
 from linkerbot import L6
+from linkerbot.hand.l6 import SensorSource, TemperatureEvent
 
 with L6(side='left', interface_name='can0') as hand:
-    queue = hand.temperature.stream(interval_ms=100, maxsize=100)
+    hand.start_polling(sources=[SensorSource.TEMPERATURE], interval_ms=100)
 
     try:
-        for data in queue:
-            for i, temp in enumerate(data.temperatures.to_list()):
-                if temp > 60.0:
-                    print(f"警告：关节电机 {i} 过热 ({temp}°C)")
+        for event in hand.stream():
+            match event:
+                case TemperatureEvent(data=data):
+                    for i, temp in enumerate(data.temperatures.to_list()):
+                        if temp > 60.0:
+                            print(f"警告：关节电机 {i} 过热 ({temp}°C)")
     except KeyboardInterrupt:
         pass
     finally:
-        hand.temperature.stop_streaming()
+        hand.stop_polling()
+        hand.stop_stream()
 ```
