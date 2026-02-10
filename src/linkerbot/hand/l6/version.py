@@ -4,7 +4,6 @@ This module provides the VersionManager class for reading device version informa
 and managing serial numbers.
 """
 
-import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -13,6 +12,7 @@ import can
 
 from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import TimeoutError, ValidationError
+from linkerbot.relay import DataRelay
 
 
 @dataclass(frozen=True)
@@ -104,30 +104,16 @@ class VersionManager:
 
         # Serial number frame assembly
         self._sn_frames: SerialNumberFrames | None = None
-        self._sn_complete: str | None = None
-        self._sn_waiters: list[tuple[threading.Event, dict]] = []
-        self._sn_lock = threading.Lock()
+        self._sn_relay = DataRelay[str]()
 
-        # Version number responses
-        self._pcb_version: Version | None = None
-        self._pcb_waiters: list[tuple[threading.Event, dict]] = []
-        self._pcb_lock = threading.Lock()
+        # Version number relays
+        self._pcb_relay = DataRelay[Version]()
+        self._firmware_relay = DataRelay[Version]()
+        self._mechanical_relay = DataRelay[Version]()
 
-        self._firmware_version: Version | None = None
-        self._firmware_waiters: list[tuple[threading.Event, dict]] = []
-        self._firmware_lock = threading.Lock()
-
-        self._mechanical_version: Version | None = None
-        self._mechanical_waiters: list[tuple[threading.Event, dict]] = []
-        self._mechanical_lock = threading.Lock()
-
-        # Password verification
-        self._password_waiters: list[tuple[threading.Event, dict]] = []
-        self._password_lock = threading.Lock()
-
-        # Save operation support
-        self._save_waiters: list[tuple[threading.Event, dict]] = []
-        self._save_lock = threading.Lock()
+        # Password verification and save operation
+        self._password_relay = DataRelay[bool]()
+        self._save_relay = DataRelay[bool]()
 
     def get_device_info(self, timeout_ms: float = 1000) -> DeviceInfo:
         """Get complete device information including all version numbers and serial number.
@@ -237,13 +223,6 @@ class VersionManager:
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
 
-        event = threading.Event()
-        result_holder: dict[str, bool] = {"success": False}
-
-        # Register this waiter
-        with self._save_lock:
-            self._save_waiters.append((event, result_holder))
-
         # Send save command (8 bytes, all 0xCF)
         data = [self._SAVE_CMD] * 8
         msg = can.Message(
@@ -252,142 +231,45 @@ class VersionManager:
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
-
-        # Wait for confirmation or timeout
-        if event.wait(timeout_ms / 1000.0):
-            if not result_holder["success"]:
-                raise TimeoutError(
-                    f"Save operation failed - no confirmation within {timeout_ms}ms"
-                )
-        else:
-            # Timeout - remove ourselves from waiters list
-            with self._save_lock:
-                if (event, result_holder) in self._save_waiters:
-                    self._save_waiters.remove((event, result_holder))
-            raise TimeoutError(
-                f"Save operation timed out - no response within {timeout_ms}ms"
-            )
+        self._save_relay.wait(timeout_ms / 1000.0)
 
     def _get_serial_number_blocking(self, timeout_ms: float) -> str:
-        event = threading.Event()
-        result_holder: dict[str, str | None] = {"data": None}
-
-        with self._sn_lock:
-            self._sn_waiters.append((event, result_holder))
-
-        # Send request
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=[self._SN_CMD],
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
-
-        # Wait for response
-        if event.wait(timeout_ms / 1000.0):
-            if result_holder["data"] is None:
-                raise TimeoutError(f"Serial number not received within {timeout_ms}ms")
-            return result_holder["data"]
-        else:
-            with self._sn_lock:
-                if (event, result_holder) in self._sn_waiters:
-                    self._sn_waiters.remove((event, result_holder))
-            raise TimeoutError(f"Serial number request timed out after {timeout_ms}ms")
+        return self._sn_relay.wait(timeout_ms / 1000.0)
 
     def _get_pcb_version_blocking(self, timeout_ms: float) -> Version:
-        event = threading.Event()
-        result_holder: dict[str, Version | None] = {"data": None}
-
-        with self._pcb_lock:
-            self._pcb_waiters.append((event, result_holder))
-
-        # Send request
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=[self._PCB_VERSION_CMD, 0x01],
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
-
-        # Wait for response
-        if event.wait(timeout_ms / 1000.0):
-            if result_holder["data"] is None:
-                raise TimeoutError(f"PCB version not received within {timeout_ms}ms")
-            return result_holder["data"]
-        else:
-            with self._pcb_lock:
-                if (event, result_holder) in self._pcb_waiters:
-                    self._pcb_waiters.remove((event, result_holder))
-            raise TimeoutError(f"PCB version request timed out after {timeout_ms}ms")
+        return self._pcb_relay.wait(timeout_ms / 1000.0)
 
     def _get_firmware_version_blocking(self, timeout_ms: float) -> Version:
-        event = threading.Event()
-        result_holder: dict[str, Version | None] = {"data": None}
-
-        with self._firmware_lock:
-            self._firmware_waiters.append((event, result_holder))
-
-        # Send request
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=[self._FIRMWARE_VERSION_CMD],
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
-
-        # Wait for response
-        if event.wait(timeout_ms / 1000.0):
-            if result_holder["data"] is None:
-                raise TimeoutError(
-                    f"Firmware version not received within {timeout_ms}ms"
-                )
-            return result_holder["data"]
-        else:
-            with self._firmware_lock:
-                if (event, result_holder) in self._firmware_waiters:
-                    self._firmware_waiters.remove((event, result_holder))
-            raise TimeoutError(
-                f"Firmware version request timed out after {timeout_ms}ms"
-            )
+        return self._firmware_relay.wait(timeout_ms / 1000.0)
 
     def _get_mechanical_version_blocking(self, timeout_ms: float) -> Version:
-        event = threading.Event()
-        result_holder: dict[str, Version | None] = {"data": None}
-
-        with self._mechanical_lock:
-            self._mechanical_waiters.append((event, result_holder))
-
-        # Send request
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=[self._MECHANICAL_VERSION_CMD],
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
-
-        # Wait for response
-        if event.wait(timeout_ms / 1000.0):
-            if result_holder["data"] is None:
-                raise TimeoutError(
-                    f"Mechanical version not received within {timeout_ms}ms"
-                )
-            return result_holder["data"]
-        else:
-            with self._mechanical_lock:
-                if (event, result_holder) in self._mechanical_waiters:
-                    self._mechanical_waiters.remove((event, result_holder))
-            raise TimeoutError(
-                f"Mechanical version request timed out after {timeout_ms}ms"
-            )
+        return self._mechanical_relay.wait(timeout_ms / 1000.0)
 
     def _verify_password(self, password: list[int], timeout_ms: float) -> None:
-        event = threading.Event()
-        result_holder: dict[str, bool] = {"success": False}
-
-        with self._password_lock:
-            self._password_waiters.append((event, result_holder))
-
-        # Send password
         data = [self._PASSWORD_CMD, *password]
         msg = can.Message(
             arbitration_id=self._arbitration_id,
@@ -395,16 +277,9 @@ class VersionManager:
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
-
-        # Wait for verification
-        if event.wait(timeout_ms / 1000.0):
-            if not result_holder["success"]:
-                raise TimeoutError("Password verification failed")
-        else:
-            with self._password_lock:
-                if (event, result_holder) in self._password_waiters:
-                    self._password_waiters.remove((event, result_holder))
-            raise TimeoutError(f"Password verification timed out after {timeout_ms}ms")
+        result = self._password_relay.wait(timeout_ms / 1000.0)
+        if not result:
+            raise TimeoutError("Password verification failed")
 
     def _send_serial_number(self, serial_number: str) -> None:
         # Internal: Send serial number
@@ -447,58 +322,31 @@ class VersionManager:
                 if self._sn_frames.is_complete():
                     sn = self._sn_frames.assemble()
                     self._sn_frames = None
-
-                    with self._sn_lock:
-                        for event, result_holder in self._sn_waiters:
-                            result_holder["data"] = sn
-                            event.set()
-                        self._sn_waiters.clear()
+                    self._sn_relay.push(sn)
 
             case self._PCB_VERSION_CMD if len(msg.data) >= 5:
                 if msg.data[1] == 0x01:
                     version = Version(
                         major=msg.data[2], minor=msg.data[3], patch=msg.data[4]
                     )
-                    with self._pcb_lock:
-                        for event, result_holder in self._pcb_waiters:
-                            result_holder["data"] = version
-                            event.set()
-                        self._pcb_waiters.clear()
+                    self._pcb_relay.push(version)
 
             case self._FIRMWARE_VERSION_CMD if len(msg.data) >= 4:
                 version = Version(
                     major=msg.data[1], minor=msg.data[2], patch=msg.data[3]
                 )
-                with self._firmware_lock:
-                    for event, result_holder in self._firmware_waiters:
-                        result_holder["data"] = version
-                        event.set()
-                    self._firmware_waiters.clear()
+                self._firmware_relay.push(version)
 
             case self._MECHANICAL_VERSION_CMD if len(msg.data) >= 4:
                 version = Version(
                     major=msg.data[1], minor=msg.data[2], patch=msg.data[3]
                 )
-                with self._mechanical_lock:
-                    for event, result_holder in self._mechanical_waiters:
-                        result_holder["data"] = version
-                        event.set()
-                    self._mechanical_waiters.clear()
+                self._mechanical_relay.push(version)
 
             case self._PASSWORD_CMD:
                 success = len(msg.data) >= 7
-                with self._password_lock:
-                    for event, result_holder in self._password_waiters:
-                        result_holder["success"] = success
-                        event.set()
-                    self._password_waiters.clear()
+                self._password_relay.push(success)
 
             case self._SAVE_CMD if len(msg.data) >= 2:
-                # Check for success response: 0xCF 0x01
                 if msg.data[1] == 0x01:
-                    # Wake up all save waiters
-                    with self._save_lock:
-                        for event, result_holder in self._save_waiters:
-                            result_holder["success"] = True
-                            event.set()
-                        self._save_waiters.clear()
+                    self._save_relay.push(True)

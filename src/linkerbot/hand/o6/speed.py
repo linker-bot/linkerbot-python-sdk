@@ -4,7 +4,6 @@ This module provides the SpeedManager and AccelerationManager classes for
 controlling motor speeds and accelerations via CAN bus communication.
 """
 
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -12,7 +11,8 @@ from dataclasses import dataclass
 import can
 
 from linkerbot.comm import CANMessageDispatcher
-from linkerbot.exceptions import TimeoutError, ValidationError
+from linkerbot.exceptions import ValidationError
+from linkerbot.relay import DataRelay
 
 
 @dataclass
@@ -201,16 +201,7 @@ class SpeedManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-
-        # Latest speed data cache
-        self._latest_data: SpeedData | None = None
-
-        # Blocking mode support
-        self._blocking_waiters: list[tuple[threading.Event, dict]] = []
-        self._waiters_lock = threading.Lock()
-
-        # Event sink for unified stream
-        self._event_sink: Callable[[SpeedData], None] | None = None
+        self._relay = DataRelay[SpeedData]()
 
     def set_speeds(self, speeds: O6Speed | list[float]) -> None:
         """Send target speeds to the robotic hand motors.
@@ -259,24 +250,8 @@ class SpeedManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-
-        event = threading.Event()
-        result_holder: dict[str, SpeedData | None] = {"data": None}
-
-        with self._waiters_lock:
-            self._blocking_waiters.append((event, result_holder))
-
         self._send_sense_request()
-
-        if event.wait(timeout_ms / 1000.0):
-            if result_holder["data"] is None:
-                raise TimeoutError(f"No data received within {timeout_ms}ms")
-            return result_holder["data"]
-        else:
-            with self._waiters_lock:
-                if (event, result_holder) in self._blocking_waiters:
-                    self._blocking_waiters.remove((event, result_holder))
-            raise TimeoutError(f"No speed data received within {timeout_ms}ms")
+        return self._relay.wait(timeout_ms / 1000.0)
 
     def get_snapshot(self) -> SpeedData | None:
         """Get the most recent cached speed data (non-blocking).
@@ -289,10 +264,10 @@ class SpeedManager:
             >>> if data:
             ...     print(f"Fresh speeds: {data.speeds}")
         """
-        return self._latest_data
+        return self._relay.snapshot()
 
     def _set_event_sink(self, sink: Callable[[SpeedData], None]) -> None:
-        self._event_sink = sink
+        self._relay.set_sink(sink)
 
     def _send_sense_request(self) -> None:
         msg = can.Message(
@@ -316,19 +291,7 @@ class SpeedManager:
 
         speeds = O6Speed.from_raw(raw_speeds)
         speed_data = SpeedData(speeds=speeds, timestamp=time.time())
-        self._on_complete_data(speed_data)
-
-    def _on_complete_data(self, data: SpeedData) -> None:
-        self._latest_data = data
-
-        with self._waiters_lock:
-            for event, result_holder in self._blocking_waiters:
-                result_holder["data"] = data
-                event.set()
-            self._blocking_waiters.clear()
-
-        if self._event_sink is not None:
-            self._event_sink(data)
+        self._relay.push(speed_data)
 
 
 @dataclass
@@ -544,16 +507,7 @@ class AccelerationManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-
-        # Latest acceleration data cache
-        self._latest_data: AccelerationData | None = None
-
-        # Blocking mode support
-        self._blocking_waiters: list[tuple[threading.Event, dict]] = []
-        self._waiters_lock = threading.Lock()
-
-        # Event sink for unified stream
-        self._event_sink: Callable[[AccelerationData], None] | None = None
+        self._relay = DataRelay[AccelerationData]()
 
     def set_accelerations(self, accelerations: O6Acceleration | list[float]) -> None:
         """Send target accelerations to the robotic hand motors.
@@ -615,24 +569,8 @@ class AccelerationManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-
-        event = threading.Event()
-        result_holder: dict[str, AccelerationData | None] = {"data": None}
-
-        with self._waiters_lock:
-            self._blocking_waiters.append((event, result_holder))
-
         self._send_sense_request()
-
-        if event.wait(timeout_ms / 1000.0):
-            if result_holder["data"] is None:
-                raise TimeoutError(f"No data received within {timeout_ms}ms")
-            return result_holder["data"]
-        else:
-            with self._waiters_lock:
-                if (event, result_holder) in self._blocking_waiters:
-                    self._blocking_waiters.remove((event, result_holder))
-            raise TimeoutError(f"No acceleration data received within {timeout_ms}ms")
+        return self._relay.wait(timeout_ms / 1000.0)
 
     def get_snapshot(self) -> AccelerationData | None:
         """Get the most recent cached acceleration data (non-blocking).
@@ -645,10 +583,10 @@ class AccelerationManager:
             >>> if data:
             ...     print(f"Fresh accelerations: {data.accelerations}")
         """
-        return self._latest_data
+        return self._relay.snapshot()
 
     def _set_event_sink(self, sink: Callable[[AccelerationData], None]) -> None:
-        self._event_sink = sink
+        self._relay.set_sink(sink)
 
     def _send_sense_request(self) -> None:
         msg = can.Message(
@@ -674,16 +612,4 @@ class AccelerationManager:
         acceleration_data = AccelerationData(
             accelerations=accelerations, timestamp=time.time()
         )
-        self._on_complete_data(acceleration_data)
-
-    def _on_complete_data(self, data: AccelerationData) -> None:
-        self._latest_data = data
-
-        with self._waiters_lock:
-            for event, result_holder in self._blocking_waiters:
-                result_holder["data"] = data
-                event.set()
-            self._blocking_waiters.clear()
-
-        if self._event_sink is not None:
-            self._event_sink(data)
+        self._relay.push(acceleration_data)

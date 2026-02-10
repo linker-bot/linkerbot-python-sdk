@@ -17,6 +17,7 @@ import numpy.typing as npt
 
 from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import TimeoutError, ValidationError
+from linkerbot.relay import DataRelay
 
 
 @dataclass(frozen=True)
@@ -109,15 +110,7 @@ class SingleForceSensorManager:
         # Frame assembly state
         self._frame_batch: FrameBatch | None = None
 
-        # Latest complete data cache
-        self._latest_data: ForceSensorData | None = None
-
-        # Blocking mode support
-        self._blocking_waiters: list[tuple[threading.Event, dict]] = []
-        self._waiters_lock = threading.Lock()
-
-        # Event sink for unified stream
-        self._event_sink: Callable[[ForceSensorData], None] | None = None
+        self._relay = DataRelay[ForceSensorData]()
 
     def get_data_blocking(self, timeout_ms: float = 1000) -> ForceSensorData:
         """Get force sensor data with blocking wait.
@@ -141,27 +134,8 @@ class SingleForceSensorManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-
-        event = threading.Event()
-        result_holder: dict[str, ForceSensorData | None] = {"data": None}
-
-        # Register this waiter
-        with self._waiters_lock:
-            self._blocking_waiters.append((event, result_holder))
-
         self._send_request()
-
-        # Wait for data or timeout
-        if event.wait(timeout_ms / 1000.0):
-            if result_holder["data"] is None:
-                raise TimeoutError(f"No data received within {timeout_ms}ms")
-            return result_holder["data"]
-        else:
-            # Timeout - remove ourselves from waiters list
-            with self._waiters_lock:
-                if (event, result_holder) in self._blocking_waiters:
-                    self._blocking_waiters.remove((event, result_holder))
-            raise TimeoutError(f"No data received within {timeout_ms}ms")
+        return self._relay.wait(timeout_ms / 1000.0)
 
     def get_snapshot(self) -> ForceSensorData | None:
         """Get the most recent cached sensor data (non-blocking).
@@ -174,10 +148,10 @@ class SingleForceSensorManager:
             >>> if data:
             ...     print("Data is available")
         """
-        return self._latest_data
+        return self._relay.snapshot()
 
     def _set_event_sink(self, sink: Callable[[ForceSensorData], None]) -> None:
-        self._event_sink = sink
+        self._relay.set_sink(sink)
 
     def _send_request(self) -> None:
         msg = can.Message(
@@ -214,22 +188,7 @@ class SingleForceSensorManager:
         if self._frame_batch.is_complete():
             complete_data = self._frame_batch.assemble()
             self._frame_batch = None
-            self._on_complete_data(complete_data)
-
-    def _on_complete_data(self, data: ForceSensorData) -> None:
-        # Update cache
-        self._latest_data = data
-
-        # Wake up all blocking waiters
-        with self._waiters_lock:
-            for event, result_holder in self._blocking_waiters:
-                result_holder["data"] = data
-                event.set()
-            self._blocking_waiters.clear()
-
-        # Push to event sink
-        if self._event_sink is not None:
-            self._event_sink(data)
+            self._relay.push(complete_data)
 
 
 class ForceSensorManager:

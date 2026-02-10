@@ -4,7 +4,6 @@ This module provides the FaultManager class for reading joint fault codes
 and fault status.
 """
 
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -13,7 +12,8 @@ from enum import Flag
 import can
 
 from linkerbot.comm import CANMessageDispatcher
-from linkerbot.exceptions import TimeoutError, ValidationError
+from linkerbot.exceptions import ValidationError
+from linkerbot.relay import DataRelay
 
 
 class FaultCode(Flag):
@@ -234,11 +234,7 @@ class FaultManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-
-        self._latest_data: FaultData | None = None
-        self._blocking_waiters: list[tuple[threading.Event, dict]] = []
-        self._waiters_lock = threading.Lock()
-        self._event_sink: Callable[[FaultData], None] | None = None
+        self._relay = DataRelay[FaultData]()
 
     def get_blocking(self, timeout_ms: float = 100) -> FaultData:
         """Get current fault status with blocking wait.
@@ -260,24 +256,8 @@ class FaultManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-
-        event = threading.Event()
-        result_holder: dict[str, FaultData | None] = {"data": None}
-
-        with self._waiters_lock:
-            self._blocking_waiters.append((event, result_holder))
-
         self._send_fault_request()
-
-        if event.wait(timeout_ms / 1000.0):
-            if result_holder["data"] is None:
-                raise TimeoutError(f"No data received within {timeout_ms}ms")
-            return result_holder["data"]
-        else:
-            with self._waiters_lock:
-                if (event, result_holder) in self._blocking_waiters:
-                    self._blocking_waiters.remove((event, result_holder))
-            raise TimeoutError(f"No fault data received within {timeout_ms}ms")
+        return self._relay.wait(timeout_ms / 1000.0)
 
     def get_snapshot(self) -> FaultData | None:
         """Get the most recent fault data (non-blocking).
@@ -290,10 +270,10 @@ class FaultManager:
             >>> if data:
             ...     print(f"Has faults: {data.faults.has_any_fault()}")
         """
-        return self._latest_data
+        return self._relay.snapshot()
 
     def _set_event_sink(self, sink: Callable[[FaultData], None]) -> None:
-        self._event_sink = sink
+        self._relay.set_sink(sink)
 
     def _send_fault_request(self) -> None:
         msg = can.Message(
@@ -317,16 +297,4 @@ class FaultManager:
 
         faults = O6Fault.from_raw(raw_codes)
         fault_data = FaultData(faults=faults, timestamp=time.time())
-        self._on_complete_data(fault_data)
-
-    def _on_complete_data(self, data: FaultData) -> None:
-        self._latest_data = data
-
-        with self._waiters_lock:
-            for event, result_holder in self._blocking_waiters:
-                result_holder["data"] = data
-                event.set()
-            self._blocking_waiters.clear()
-
-        if self._event_sink is not None:
-            self._event_sink(data)
+        self._relay.push(fault_data)

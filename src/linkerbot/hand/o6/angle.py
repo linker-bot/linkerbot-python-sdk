@@ -4,7 +4,6 @@ This module provides the AngleManager class for controlling joint angles
 and reading angle sensor data via CAN bus communication.
 """
 
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -12,7 +11,8 @@ from dataclasses import dataclass
 import can
 
 from linkerbot.comm import CANMessageDispatcher
-from linkerbot.exceptions import TimeoutError, ValidationError
+from linkerbot.exceptions import ValidationError
+from linkerbot.relay import DataRelay
 
 
 @dataclass
@@ -146,16 +146,7 @@ class AngleManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-
-        # Latest angle data cache
-        self._latest_data: AngleData | None = None
-
-        # Blocking mode support
-        self._blocking_waiters: list[tuple[threading.Event, dict]] = []
-        self._waiters_lock = threading.Lock()
-
-        # Event sink for unified stream
-        self._event_sink: Callable[[AngleData], None] | None = None
+        self._relay = DataRelay[AngleData]()
 
     def set_angles(self, angles: O6Angle | list[float]) -> None:
         """Send target angles to the robotic hand.
@@ -212,27 +203,8 @@ class AngleManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-
-        event = threading.Event()
-        result_holder: dict[str, AngleData | None] = {"data": None}
-
-        # Register this waiter
-        with self._waiters_lock:
-            self._blocking_waiters.append((event, result_holder))
-
         self._send_sense_request()
-
-        # Wait for data or timeout
-        if event.wait(timeout_ms / 1000.0):
-            if result_holder["data"] is None:
-                raise TimeoutError(f"No data received within {timeout_ms}ms")
-            return result_holder["data"]
-        else:
-            # Timeout - remove ourselves from waiters list
-            with self._waiters_lock:
-                if (event, result_holder) in self._blocking_waiters:
-                    self._blocking_waiters.remove((event, result_holder))
-            raise TimeoutError(f"No angle data received within {timeout_ms}ms")
+        return self._relay.wait(timeout_ms / 1000.0)
 
     def get_snapshot(self) -> AngleData | None:
         """Get the most recent cached angle data (non-blocking).
@@ -245,10 +217,10 @@ class AngleManager:
             >>> if data:
             ...     print(f"Fresh angles: {data.angles}")
         """
-        return self._latest_data
+        return self._relay.snapshot()
 
     def _set_event_sink(self, sink: Callable[[AngleData], None]) -> None:
-        self._event_sink = sink
+        self._relay.set_sink(sink)
 
     def _send_sense_request(self) -> None:
         msg = can.Message(
@@ -276,19 +248,4 @@ class AngleManager:
 
         angles = O6Angle.from_raw(raw_angles)
         angle_data = AngleData(angles=angles, timestamp=time.time())
-        self._on_complete_data(angle_data)
-
-    def _on_complete_data(self, data: AngleData) -> None:
-        # Update cache
-        self._latest_data = data
-
-        # Wake up all blocking waiters
-        with self._waiters_lock:
-            for event, result_holder in self._blocking_waiters:
-                result_holder["data"] = data
-                event.set()
-            self._blocking_waiters.clear()
-
-        # Push to unified event sink
-        if self._event_sink is not None:
-            self._event_sink(data)
+        self._relay.push(angle_data)

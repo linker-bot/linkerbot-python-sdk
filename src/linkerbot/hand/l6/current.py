@@ -4,7 +4,6 @@ This module provides the CurrentManager class for reading motor current
 sensor data via CAN bus communication.
 """
 
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -12,7 +11,8 @@ from dataclasses import dataclass
 import can
 
 from linkerbot.comm import CANMessageDispatcher
-from linkerbot.exceptions import TimeoutError, ValidationError
+from linkerbot.exceptions import ValidationError
+from linkerbot.relay import DataRelay
 
 
 @dataclass
@@ -140,16 +140,7 @@ class CurrentManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-
-        # Latest current data cache
-        self._latest_data: CurrentData | None = None
-
-        # Blocking mode support
-        self._blocking_waiters: list[tuple[threading.Event, dict]] = []
-        self._waiters_lock = threading.Lock()
-
-        # Event sink for unified stream
-        self._event_sink: Callable[[CurrentData], None] | None = None
+        self._relay = DataRelay[CurrentData]()
 
     def get_blocking(self, timeout_ms: float = 100) -> CurrentData:
         """Request and wait for current motor currents (blocking).
@@ -170,24 +161,8 @@ class CurrentManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-
-        event = threading.Event()
-        result_holder: dict[str, CurrentData | None] = {"data": None}
-
-        with self._waiters_lock:
-            self._blocking_waiters.append((event, result_holder))
-
         self._send_sense_request()
-
-        if event.wait(timeout_ms / 1000.0):
-            if result_holder["data"] is None:
-                raise TimeoutError(f"No data received within {timeout_ms}ms")
-            return result_holder["data"]
-        else:
-            with self._waiters_lock:
-                if (event, result_holder) in self._blocking_waiters:
-                    self._blocking_waiters.remove((event, result_holder))
-            raise TimeoutError(f"No current data received within {timeout_ms}ms")
+        return self._relay.wait(timeout_ms / 1000.0)
 
     def get_snapshot(self) -> CurrentData | None:
         """Get the most recent cached current data (non-blocking).
@@ -200,10 +175,10 @@ class CurrentManager:
             >>> if data:
             ...     print(f"Fresh currents: {data.currents}")
         """
-        return self._latest_data
+        return self._relay.snapshot()
 
     def _set_event_sink(self, sink: Callable[[CurrentData], None]) -> None:
-        self._event_sink = sink
+        self._relay.set_sink(sink)
 
     def _send_sense_request(self) -> None:
         msg = can.Message(
@@ -227,16 +202,4 @@ class CurrentManager:
 
         currents = L6Current.from_raw(raw_currents)
         current_data = CurrentData(currents=currents, timestamp=time.time())
-        self._on_complete_data(current_data)
-
-    def _on_complete_data(self, data: CurrentData) -> None:
-        self._latest_data = data
-
-        with self._waiters_lock:
-            for event, result_holder in self._blocking_waiters:
-                result_holder["data"] = data
-                event.set()
-            self._blocking_waiters.clear()
-
-        if self._event_sink is not None:
-            self._event_sink(data)
+        self._relay.push(current_data)
