@@ -223,6 +223,10 @@ class TorqueManager:
             raw_torques = torques.to_raw()
         elif isinstance(torques, list):
             raw_torques = O6Torque.from_list(torques).to_raw()
+        else:
+            raise ValidationError(
+                f"Expected O6Torque or list, got {type(torques).__name__}"
+            )
 
         # Build and send message
         data = [self._CONTROL_CMD, *raw_torques]

@@ -11,7 +11,7 @@
 ## 获取设备信息
 
 ```python
-hand.version.get_device_info(timeout_ms: float = 1000) -> DeviceInfo
+hand.version.get_device_info() -> DeviceInfo
 ```
 
 返回 `DeviceInfo` 对象，包含：
@@ -28,7 +28,6 @@ hand.version.get_device_info(timeout_ms: float = 1000) -> DeviceInfo
 
 **异常**：
 - `TimeoutError`：请求超时
-- `ValidationError`：`timeout_ms` 不是正数
 
 ## 示例
 

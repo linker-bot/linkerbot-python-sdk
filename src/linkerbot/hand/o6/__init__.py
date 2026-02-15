@@ -17,7 +17,6 @@ from linkerbot.hand.o6.events import (
     TemperatureEvent,
     TorqueEvent,
 )
-from linkerbot.hand.o6.factory_reset import FactoryResetManager
 from linkerbot.hand.o6.fault import FaultCode, FaultData, FaultManager, O6Fault
 from linkerbot.hand.o6.force_sensor import (
     AllFingersData,
@@ -34,12 +33,6 @@ from linkerbot.hand.o6.speed import (
     SpeedData,
     SpeedManager,
 )
-from linkerbot.hand.o6.stall import (
-    O6StallThreshold,
-    O6StallTime,
-    O6StallTorque,
-    StallManager,
-)
 from linkerbot.hand.o6.temperature import (
     O6Temperature,
     TemperatureData,
@@ -55,12 +48,10 @@ __all__ = [
     "SingleForceSensorManager",
     "TemperatureManager",
     "FaultManager",
-    "StallManager",
     "VersionManager",
     "AccelerationManager",
     "SpeedManager",
     "TorqueManager",
-    "FactoryResetManager",
     # Data containers
     "AngleData",
     "TorqueData",
@@ -88,9 +79,6 @@ __all__ = [
     "O6Acceleration",
     "O6Temperature",
     "O6Fault",
-    "O6StallTime",
-    "O6StallThreshold",
-    "O6StallTorque",
     "FaultCode",
     "Version",
     "DeviceInfo",

@@ -17,7 +17,7 @@ hand.torque.set_torques([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
 # 使用 O6Torque 对象
 torques = O6Torque(
     thumb_flex=50.0,  # 拇指屈曲
-    thumb_abd=30.0,   # 拇指外展
+    thumb_abd=30.0,   # 拇指侧摆
     index=60.0,       # 食指
     middle=60.0,      # 中指
     ring=60.0,        # 无名指

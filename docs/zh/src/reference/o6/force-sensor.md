@@ -10,7 +10,7 @@ O6 灵巧手配备 5 个手指的力传感器（thumb, index, middle, ring, pink
 from linkerbot import O6
 
 with O6(side="left", interface_name="can0") as hand:
-    data = hand.force_sensor.get_data_blocking()
+    data = hand.force_sensor.get_blocking()
 ```
 
 ### 数据结构
@@ -27,7 +27,7 @@ with O6(side="left", interface_name="can0") as hand:
 ### 阻塞读取
 
 ```python
-data = hand.force_sensor.get_data_blocking(timeout_ms=1000)
+data = hand.force_sensor.get_blocking(timeout_ms=1000)
 print(data.thumb.values)   # 拇指数据
 print(data.index.values)   # 食指数据
 ```
@@ -77,7 +77,7 @@ hand.stop_stream()
 from linkerbot import O6
 
 with O6(side="left", interface_name="can0") as hand:
-    data = hand.force_sensor.get_data_blocking(timeout_ms=1000)
+    data = hand.force_sensor.get_blocking(timeout_ms=1000)
     print(f"拇指：{data.thumb.values.shape}")
     print(f"食指：{data.index.values.shape}")
 ```

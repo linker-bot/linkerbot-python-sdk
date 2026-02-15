@@ -88,7 +88,7 @@ class FaultCode(Flag):
         return names
 
 
-@dataclass
+@dataclass(frozen=True)
 class L6Fault:
     """Joint fault codes for L6 hand.
 
@@ -166,6 +166,9 @@ class L6Fault:
         # Internal: Construct from hardware communication format
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
+        for value in values:
+            if value < 0 or value > 255:
+                raise ValueError(f"Value {value} out of range [0, 255]")
         fault_codes = [FaultCode(v & 0x7F) for v in values]
         return cls.from_list(fault_codes)
 

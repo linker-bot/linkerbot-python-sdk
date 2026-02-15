@@ -81,13 +81,16 @@ class L6Torque:
 
     def to_raw(self) -> list[int]:
         # Internal: Convert to hardware communication format
-        return [int(v * 255 / 100) for v in self.to_list()]
+        return [round(v * 255 / 100) for v in self.to_list()]
 
     @classmethod
     def from_raw(cls, values: list[int]) -> "L6Torque":
         # Internal: Construct from hardware communication format
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
+        for value in values:
+            if value < 0 or value > 255:
+                raise ValueError(f"Value {value} out of range [0, 255]")
         normalized = [v * 100 / 255 for v in values]
         return cls.from_list(normalized)
 
@@ -166,6 +169,10 @@ class TorqueManager:
             raw_torques = torques.to_raw()
         elif isinstance(torques, list):
             raw_torques = L6Torque.from_list(torques).to_raw()
+        else:
+            raise ValidationError(
+                f"Expected L6Torque or list, got {type(torques).__name__}"
+            )
 
         # Build and send message
         data = [self._CONTROL_CMD, *raw_torques]

@@ -1,0 +1,54 @@
+"""Tests for O6 lifecycle management with hardware."""
+
+import os
+from typing import Literal, cast
+
+import pytest
+
+from linkerbot import O6
+
+pytestmark = [pytest.mark.o6, pytest.mark.lifecycle]
+
+
+class TestLifecycle:
+    """Test O6 instance lifecycle (context manager, close, post-close behavior)."""
+
+    def test_context_manager_creates_usable_instance(self, o6_hand: O6):
+        """Within a context-managed block the hand should be open and usable."""
+        assert not o6_hand.is_closed(), (
+            "Hand should not be closed inside context manager"
+        )
+
+    def test_context_manager_closes_on_exit(self):
+        """After exiting the `with` block the hand should be closed."""
+        interface = os.environ.get("CAN_INTERFACE", "can0")
+        side = cast(Literal["left", "right"], os.environ.get("O6_SIDE", "left"))
+
+        with O6(side=side, interface_name=interface) as hand:
+            assert not hand.is_closed(), "Hand should be open inside context manager"
+
+        assert hand.is_closed(), "Hand should be closed after exiting context manager"
+
+    def test_close_is_idempotent(self):
+        """Calling close() multiple times should not raise."""
+        interface = os.environ.get("CAN_INTERFACE", "can0")
+        side = cast(Literal["left", "right"], os.environ.get("O6_SIDE", "left"))
+
+        with O6(side=side, interface_name=interface) as hand:
+            pass
+
+        # Close again several times -- none should raise
+        hand.close()
+        hand.close()
+        hand.close()
+
+    def test_operations_after_close_raise(self):
+        """Operations on a closed hand should raise an exception."""
+        interface = os.environ.get("CAN_INTERFACE", "can0")
+        side = cast(Literal["left", "right"], os.environ.get("O6_SIDE", "left"))
+
+        with O6(side=side, interface_name=interface) as hand:
+            pass
+
+        with pytest.raises(Exception):
+            hand.angle.get_blocking()

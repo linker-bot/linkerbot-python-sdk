@@ -1,5 +1,7 @@
 import logging
+import queue
 import threading
+import time
 from collections.abc import Callable
 
 import can
@@ -11,16 +13,10 @@ class CANMessageDispatcher:
     This class provides a publish-subscribe pattern for CAN messages, allowing multiple
     subscribers to receive messages from a CAN bus interface. It runs a background thread
     to continuously receive messages and dispatch them to registered callbacks.
-
-    Attributes:
-        _bitrate: CAN bus bitrate in bits per second.
-        _bus: CAN bus interface instance.
-        _subscribers: List of registered callback functions.
-        _subscribers_lock: Lock for thread-safe access to subscribers list.
-        _running: Flag indicating if the receive loop is active.
-        _recv_thread: Background thread for receiving CAN messages.
-        _logger: Logger instance for this dispatcher.
     """
+
+    SEND_QUEUE_SIZE = 1000
+    SEND_INTERVAL_S = 0.001
 
     def __init__(self, interface_name: str, interface_type: str = "socketcan"):
         """Initialize the CAN message dispatcher.
@@ -29,19 +25,25 @@ class CANMessageDispatcher:
             interface_name: Name of the CAN interface (e.g., "can0", "vcan0").
             interface_type: Type of CAN interface backend (default: "socketcan").
         """
-        self._bitrate = 100_0000
+        self._bitrate = 1_000_000
         self._bus: can.BusABC = can.Bus(
             channel=interface_name, interface=interface_type, bitrate=self._bitrate
         )
         self._subscribers: list[Callable[[can.Message], None]] = []
         self._subscribers_lock = threading.Lock()
         self._running = True
+        self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self._send_queue: queue.Queue[can.Message] = queue.Queue(
+            maxsize=self.SEND_QUEUE_SIZE
+        )
         self._recv_thread: threading.Thread = threading.Thread(
             target=self._recv_loop, daemon=True, name="CANMessageDispatcher.recv_loop"
         )
+        self._send_thread: threading.Thread = threading.Thread(
+            target=self._send_loop, daemon=True, name="CANMessageDispatcher.send_loop"
+        )
         self._recv_thread.start()
-
-        self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self._send_thread.start()
 
     def _recv_loop(self) -> None:
         """Background thread loop for receiving and dispatching CAN messages.
@@ -50,9 +52,11 @@ class CANMessageDispatcher:
         registered subscribers. Handles exceptions in both message reception and
         callback execution.
         """
+        consecutive_errors = 0
         while self._running:
             try:
                 msg = self._bus.recv(timeout=0.01)
+                consecutive_errors = 0
                 if not msg:
                     continue
                 with self._subscribers_lock:
@@ -63,8 +67,9 @@ class CANMessageDispatcher:
                     except Exception as e:
                         self._logger.error(f"Error in callback: {e}")
             except Exception as e:
+                consecutive_errors += 1
                 self._logger.error(f"Error receiving CAN message: {e}")
-                # Continue running even if recv fails
+                time.sleep(min(0.1 * consecutive_errors, 1.0))
 
     def subscribe(self, callback: Callable[[can.Message], None]) -> None:
         """Register a callback to receive CAN messages.
@@ -87,24 +92,57 @@ class CANMessageDispatcher:
             if callback in self._subscribers:
                 self._subscribers.remove(callback)
 
+    def _send_loop(self) -> None:
+        """Background thread loop for rate-limited CAN message sending.
+
+        Dequeues messages from the send queue and transmits them at a fixed
+        interval of 150 us to avoid flooding the CAN bus.
+        """
+        while self._running:
+            try:
+                msg = self._send_queue.get(timeout=0.01)
+            except queue.Empty:
+                continue
+            try:
+                deadline = time.monotonic() + self.SEND_INTERVAL_S
+                self._bus.send(msg)
+                # Busy-wait for the remaining interval (time.sleep is too coarse
+                # for microsecond precision).
+                while time.monotonic() < deadline:
+                    pass
+            except Exception as e:
+                self._logger.error(f"Error sending CAN message: {e}")
+
     def send(self, msg: can.Message) -> None:
-        """Send a CAN message on the bus.
+        """Enqueue a CAN message for rate-limited sending.
 
         Args:
             msg: The CAN message to send.
+
+        Raises:
+            RuntimeError: If the dispatcher has been stopped.
+            queue.Full: If the send queue is full (1000 messages).
         """
-        self._bus.send(msg)
+        if not self._running:
+            raise RuntimeError("Cannot send on a stopped CANMessageDispatcher")
+        self._send_queue.put_nowait(msg)
 
     def stop(self) -> None:
         """Stop the dispatcher and clean up resources.
 
-        Stops the receive loop, waits for the background thread to finish,
+        Stops the receive and send loops, waits for background threads to finish,
         and shuts down the CAN bus interface.
         """
         self._running = False
-        if self._recv_thread.is_alive():
-            self._recv_thread.join(timeout=1.0)
+        for thread in (self._recv_thread, self._send_thread):
+            if thread.is_alive():
+                thread.join(timeout=1.0)
+                if thread.is_alive():
+                    self._logger.warning(f"{thread.name} did not stop within timeout")
+                    return
         self._bus.shutdown()
+        with self._subscribers_lock:
+            self._subscribers.clear()
 
     def __enter__(self) -> "CANMessageDispatcher":
         """Enter the context manager.

@@ -59,7 +59,7 @@ with L6(side="left", interface_name="can0") as hand:
 | 属性 | 说明 |
 |------|------|
 | `thumb_flex` | 拇指弯曲 |
-| `thumb_abd` | 拇指外展 |
+| `thumb_abd` | 拇指侧摆 |
 | `index` | 食指 |
 | `middle` | 中指 |
 | `ring` | 无名指 |
@@ -165,7 +165,7 @@ with L6(side="left", interface_name="can0") as hand:
 | 索引 | 名称 | 标识 |
 |------|------|------|
 | 0 | 拇指弯曲 | `thumb_flex` |
-| 1 | 拇指外展 | `thumb_abd` |
+| 1 | 拇指侧摆 | `thumb_abd` |
 | 2 | 食指 | `index` |
 | 3 | 中指 | `middle` |
 | 4 | 无名指 | `ring` |

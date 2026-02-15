@@ -17,7 +17,6 @@ from linkerbot.queue import IterableQueue
 
 from .angle import AngleManager
 from .current import CurrentManager
-from .device_id import DeviceIDManager
 from .events import (
     AngleEvent,
     CurrentEvent,
@@ -29,12 +28,9 @@ from .events import (
     TemperatureEvent,
     TorqueEvent,
 )
-from .factory_reset import FactoryResetManager
 from .fault import FaultManager
 from .force_sensor import ForceSensorManager
-from .limit_compensation import LimitCompensationManager
 from .speed import SpeedManager
-from .stall import StallManager
 from .temperature import TemperatureManager
 from .torque import TorqueManager
 from .version import VersionManager
@@ -84,11 +80,7 @@ class L6:
         temperature: TemperatureManager instance for temperature data acquisition.
         current: CurrentManager instance for current data acquisition.
         fault: FaultManager instance for fault clearing and status reading.
-        stall: StallManager instance for stall detection configuration.
         version: VersionManager instance for device version information.
-        limit_compensation: LimitCompensationManager instance for joint limit compensation.
-        device_id: DeviceIDManager instance for device CAN ID configuration.
-        factory_reset: FactoryResetManager instance for factory reset operations.
 
     Args:
         side: Side of the hand (left or right, default: left).
@@ -114,9 +106,9 @@ class L6:
             interface_name=interface_name, interface_type=interface_type
         )
 
-        self._arbitration_id = 0x28
-        if side == "right":
-            self._arbitration_id = 0x27
+        if side not in ("left", "right"):
+            raise ValidationError(f"side must be 'left' or 'right', got {side!r}")
+        self._arbitration_id = 0x27 if side == "right" else 0x28
 
         # Create subsystem managers
         self.angle = AngleManager(
@@ -140,22 +132,9 @@ class L6:
         self.fault = FaultManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
-        self.stall = StallManager(
-            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
-        )
         self.version = VersionManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
         )
-        self.limit_compensation = LimitCompensationManager(
-            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
-        )
-        self.device_id = DeviceIDManager(
-            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
-        )
-        self.factory_reset = FactoryResetManager(
-            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
-        )
-
         # State tracking
         self._closed = False
 
@@ -163,7 +142,8 @@ class L6:
         self._unified_queue: IterableQueue[SensorEvent] | None = None
 
         # Polling
-        self._polling_active = False
+        self._stop_polling = threading.Event()
+        self._stop_polling.set()
         self._polling_interval_ms: float = 100
         self._polling_threads: dict[str, threading.Thread] = {}
 
@@ -282,7 +262,7 @@ class L6:
         self._ensure_open()
         if interval_ms <= 0:
             raise ValidationError("interval_ms must be positive")
-        if self._polling_active:
+        if not self._stop_polling.is_set():
             self.stop_polling()
         if sources is None:
             sources = list(SensorSource)
@@ -290,7 +270,7 @@ class L6:
             for s in sources:
                 if s not in SensorSource:
                     raise ValidationError(f"Invalid sensor source: {s!r}")
-        self._polling_active = True
+        self._stop_polling.clear()
         self._polling_interval_ms = interval_ms
         for source in sources:
             t = threading.Thread(
@@ -307,7 +287,9 @@ class L6:
 
         Idempotent: safe to call multiple times.
         """
-        self._polling_active = False
+        self._stop_polling.set()
+        for t in self._polling_threads.values():
+            t.join(timeout=2.0)
         self._polling_threads.clear()
 
     # ===== Lifecycle =====
@@ -352,18 +334,22 @@ class L6:
 
     def _polling_loop(self, source_name: str) -> None:
         sender = self._polling_senders[source_name]
-        while self._polling_active:
+        while not self._stop_polling.is_set():
             sender()
-            time.sleep(self._polling_interval_ms / 1000.0)
+            self._stop_polling.wait(self._polling_interval_ms / 1000.0)
 
     def _push_event(self, event: SensorEvent) -> None:
-        if self._unified_queue is None:
+        q = self._unified_queue
+        if q is None:
             return
         try:
-            self._unified_queue.put_nowait(event)
-        except queue.Full:
+            q.put_nowait(event)
+        except (queue.Full, StateError):
             try:
-                self._unified_queue.get_nowait()
-                self._unified_queue.put_nowait(event)
+                q.get_nowait()
             except queue.Empty:
+                pass
+            try:
+                q.put_nowait(event)
+            except (queue.Full, StateError):
                 pass

@@ -27,7 +27,7 @@ with L6(side='left', interface_name='can0') as hand:
 | 索引 | 名称 | 标识 |
 |------|------|------|
 | 0 | 拇指弯曲 | `thumb_flex` |
-| 1 | 拇指外展 | `thumb_abd` |
+| 1 | 拇指侧摆 | `thumb_abd` |
 | 2 | 食指 | `index` |
 | 3 | 中指 | `middle` |
 | 4 | 无名指 | `ring` |
@@ -45,10 +45,6 @@ with L6(side='left', interface_name='can0') as hand:
 | `hand.current` | 电流监测 | [current](./current.md) |
 | `hand.fault` | 故障检测与清除 | [fault](./fault.md) |
 | `hand.version` | 设备版本信息 | [version](./version.md) |
-| `hand.stall` | 堵转保护配置 | - |
-| `hand.limit_compensation` | 限位补偿配置 | - |
-| `hand.device_id` | CAN ID 配置 | - |
-| `hand.factory_reset` | 恢复出厂设置 | - |
 
 ## 统一流式读取
 

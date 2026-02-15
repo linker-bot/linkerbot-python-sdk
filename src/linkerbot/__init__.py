@@ -7,7 +7,7 @@ from .exceptions import (
     TimeoutError,
     ValidationError,
 )
-from .hand import L6, O6
+from .hand import L6, L25, O6, O7, L20lite
 
 __all__ = [
     "LinkerbotError",
@@ -16,5 +16,8 @@ __all__ = [
     "ValidationError",
     "StateError",
     "L6",
+    "L20lite",
     "O6",
+    "O7",
+    "L25",
 ]

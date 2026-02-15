@@ -73,7 +73,7 @@ hand.stop_stream()
 | 属性 | 说明 |
 |------|------|
 | `thumb_flex` | 拇指弯曲 |
-| `thumb_abd` | 拇指外展 |
+| `thumb_abd` | 拇指侧摆 |
 | `index` | 食指 |
 | `middle` | 中指 |
 | `ring` | 无名指 |

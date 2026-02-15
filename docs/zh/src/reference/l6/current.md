@@ -27,7 +27,7 @@ data = hand.current.get_blocking(timeout_ms=500)
 
 # 访问各手指电流 (单位：mA)
 print(data.currents.thumb_flex)  # 拇指弯曲
-print(data.currents.thumb_abd)   # 拇指外展
+print(data.currents.thumb_abd)   # 拇指侧摆
 print(data.currents.index)       # 食指
 print(data.currents.middle)      # 中指
 print(data.currents.ring)        # 无名指

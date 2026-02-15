@@ -83,6 +83,9 @@ class L6Temperature:
         # Internal: Construct from hardware communication format
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
+        for value in values:
+            if value < 0 or value > 255:
+                raise ValueError(f"Value {value} out of range [0, 255]")
         temperatures_celsius = [float(v) for v in values]
         return cls.from_list(temperatures_celsius)
 

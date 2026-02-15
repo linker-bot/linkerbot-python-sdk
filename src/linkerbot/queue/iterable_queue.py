@@ -6,6 +6,7 @@ and only stops when explicitly closed or when an exception occurs.
 """
 
 import queue
+import threading
 from typing import Generic, TypeVar
 
 from linkerbot.exceptions import StateError
@@ -43,7 +44,7 @@ class IterableQueue(Generic[T]):
             maxsize: Maximum queue size (0 = unlimited).
         """
         self._queue: queue.Queue[T] = queue.Queue(maxsize=maxsize)
-        self._closed = False
+        self._closed = threading.Event()
 
     def put(self, item: T, block: bool = True, timeout: float | None = None) -> None:
         """Put an item into the queue.
@@ -57,7 +58,7 @@ class IterableQueue(Generic[T]):
             queue.Full: If queue is full and block=False or timeout expires.
             StateError: If queue is already closed.
         """
-        if self._closed:
+        if self._closed.is_set():
             raise StateError("Cannot put to a closed queue")
         self._queue.put(item, block=block, timeout=timeout)
 
@@ -87,7 +88,7 @@ class IterableQueue(Generic[T]):
             queue.Empty: If queue is empty and block=False or timeout expires.
             StopIteration: If queue is closed and empty.
         """
-        if self._closed and self._queue.empty():
+        if self._closed.is_set() and self._queue.empty():
             raise StopIteration
 
         if not block:
@@ -95,6 +96,8 @@ class IterableQueue(Generic[T]):
 
         # Blocking mode: poll with timeout to check closed state
         while True:
+            if self._closed.is_set() and self._queue.empty():
+                raise StopIteration
             try:
                 return self._queue.get(block=True, timeout=_POLL_TIMEOUT)
             except queue.Empty:
@@ -126,7 +129,7 @@ class IterableQueue(Generic[T]):
         After closing, any blocking get() or iteration will stop once the queue is empty.
         New items cannot be added after closing.
         """
-        self._closed = True
+        self._closed.set()
 
     def __iter__(self):
         """Return iterator for the queue."""

@@ -6,11 +6,9 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any
 
 import pytest
-
-from linkerbot import L6
 
 
 @dataclass
@@ -52,10 +50,11 @@ class InteractiveSession:
 
     def __init__(self, test_name: str) -> None:
         self.test_name = test_name
-        self.tester: str = ""
-        self.timestamp: str = datetime.now().isoformat()
+        self.tester: str = os.environ.get("TESTER", "")
+        self._started_at: datetime = datetime.now()
         self._pending_steps: list[PendingStep] = []
         self._results: list[StepResult] = []
+        self._quit_early: bool = False
 
     def step(
         self,
@@ -91,7 +90,11 @@ class InteractiveSession:
         print(f"Interactive Test: {self.test_name}")
         print(f"{'=' * 60}")
 
-        self.tester = input("Tester name: ").strip()
+        if not self.tester:
+            self.tester = input("Tester name: ").strip()
+        else:
+            print(f"Tester: {self.tester}")
+
         total = len(self._pending_steps)
 
         for i, step in enumerate(self._pending_steps, 1):
@@ -104,10 +107,21 @@ class InteractiveSession:
             step.action()
 
             print(f"Expected: {step.expected}")
-            result = input("Result correct? (y/n/s to skip): ").lower().strip()
+            result = input("Result correct? (y/n/s/q): ").lower().strip()
 
             passed: bool | None
-            if result == "s":
+            if result == "q":
+                self._results.append(
+                    StepResult(
+                        instruction=step.instruction,
+                        expected=step.expected,
+                        passed=None,
+                        notes="quit early",
+                    )
+                )
+                self._quit_early = True
+                break
+            elif result == "s":
                 passed = None
             else:
                 passed = result == "y"
@@ -132,13 +146,14 @@ class InteractiveSession:
             report_dir = Path(__file__).parent / "reports"
         report_dir.mkdir(parents=True, exist_ok=True)
 
-        filename = f"{self.test_name}_{datetime.now():%Y%m%d_%H%M%S}.json"
+        ts = self._started_at
+        filename = f"{self.test_name}_{ts:%Y%m%d_%H%M%S}.json"
         filepath = report_dir / filename
 
         report_data = {
             "test_name": self.test_name,
             "tester": self.tester,
-            "timestamp": self.timestamp,
+            "timestamp": ts.isoformat(),
             "steps": [asdict(r) for r in self._results],
             "summary": {
                 "total": len(self._results),
@@ -154,6 +169,11 @@ class InteractiveSession:
         print(f"\nReport saved: {filepath}")
         return filepath
 
+    @property
+    def quit_early(self) -> bool:
+        """Whether the tester pressed 'q' to quit."""
+        return self._quit_early
+
     def failed_steps(self) -> list[StepResult]:
         """Return list of failed steps."""
         return [r for r in self._results if r.passed is False]
@@ -162,21 +182,6 @@ class InteractiveSession:
     def results(self) -> list[StepResult]:
         """Get all step results."""
         return self._results.copy()
-
-
-@pytest.fixture(scope="module")
-def l6_hand():
-    """Create L6 hand instance for the test module.
-
-    Uses environment variables for configuration:
-    - CAN_INTERFACE: CAN interface name (default: "can0")
-    - L6_SIDE: Hand side, "left" or "right" (default: "left")
-    """
-    interface = os.environ.get("CAN_INTERFACE", "can0")
-    side = cast(Literal["left", "right"], os.environ.get("L6_SIDE", "left"))
-
-    with L6(side=side, interface_name=interface) as hand:
-        yield hand
 
 
 @pytest.fixture

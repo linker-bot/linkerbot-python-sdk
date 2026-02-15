@@ -27,7 +27,7 @@ with L6(side="left", interface_name="can0") as hand:
     hand.angle.set_angles([100, 50, 100, 100, 100, 100])
 ```
 
-关节顺序：`[拇指弯曲, 拇指外展, 食指, 中指, 无名指, 小指]`
+关节顺序：`[拇指弯曲, 拇指侧摆, 食指, 中指, 无名指, 小指]`
 
 ## 读取角度
 
@@ -47,7 +47,7 @@ with L6(side="left", interface_name="can0") as hand:
 
 ```python
 with L6(side="left", interface_name="can0") as hand:
-    data = hand.force_sensor.get_data_blocking(timeout_ms=1000)
+    data = hand.force_sensor.get_blocking(timeout_ms=1000)
 
     # 访问各手指数据
     print(f"拇指：{data.thumb.values.shape}")  # (12, 6)

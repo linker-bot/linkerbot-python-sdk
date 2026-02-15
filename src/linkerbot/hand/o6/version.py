@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 import can
 
 from linkerbot.comm import CANMessageDispatcher
-from linkerbot.exceptions import ValidationError
 from linkerbot.relay import DataRelay
 
 
@@ -54,35 +53,24 @@ class DeviceInfo:
 
 @dataclass(frozen=True)
 class SerialNumberFrames:
-    """Internal helper for accumulating serial number frames.
-
-    O6 uses byte index as frame identifier (0, 6, 12, 18) instead of
-    sequential frame numbers like L6.
-    """
-
-    # Expected byte indices for O6 serial number frames
-    _EXPECTED_INDICES: tuple[int, ...] = (0, 6, 12, 18)
+    """Internal helper for accumulating serial number frames."""
 
     frames: Mapping[int, bytes] = field(default_factory=dict)
     started_at: float = field(default_factory=time.time)
 
-    def add_frame(self, byte_index: int, data: bytes) -> "SerialNumberFrames":
-        new_frames = {**self.frames, byte_index: data}
+    def add_frame(self, frame_id: int, data: bytes) -> "SerialNumberFrames":
+        new_frames = {**self.frames, frame_id: data}
         return SerialNumberFrames(frames=new_frames, started_at=self.started_at)
 
     def is_complete(self) -> bool:
-        # Internal: Check if all frames received (byte indices: 0, 6, 12, 18)
-        return len(self.frames) == 4 and all(
-            i in self.frames for i in self._EXPECTED_INDICES
-        )
+        # Internal: Check if all frames received
+        return len(self.frames) == 4 and all(i in self.frames for i in range(0, 4))
 
     def assemble(self) -> str:
-        # Internal: Assemble using byte indices and decode
-        data = bytearray(24)
-        for byte_index, frame_data in self.frames.items():
-            for i, b in enumerate(frame_data):
-                if byte_index + i < 24:
-                    data[byte_index + i] = b
+        # Internal: Assemble and decode
+        data = bytearray()
+        for i in range(0, 4):
+            data.extend(self.frames[i])
         return data.rstrip(b"\x00").decode("ascii", errors="ignore")
 
 
@@ -118,21 +106,18 @@ class VersionManager:
         self._firmware_relay = DataRelay[Version]()
         self._mechanical_relay = DataRelay[Version]()
 
-    def get_device_info(self, timeout_ms: float = 1000) -> DeviceInfo:
+    _QUERY_TIMEOUT_MS: float = 20
+
+    def get_device_info(self) -> DeviceInfo:
         """Get complete device information including all version numbers and serial number.
 
-        This method requests and waits for all device information: serial number,
-        PCB version, firmware version, and mechanical version.
-
-        Args:
-            timeout_ms: Maximum time to wait for each request in milliseconds (default: 1000).
+        Queries are sent sequentially to avoid overwhelming the device firmware.
 
         Returns:
             DeviceInfo containing all device information.
 
         Raises:
             TimeoutError: If any request times out.
-            ValidationError: If timeout_ms is not positive.
 
         Example:
             >>> manager = VersionManager(arbitration_id, dispatcher)
@@ -142,19 +127,18 @@ class VersionManager:
             >>> print(f"Firmware Version: {info.firmware_version}")
             >>> print(f"Mechanical Version: {info.mechanical_version}")
         """
-        if timeout_ms <= 0:
-            raise ValidationError("timeout_ms must be positive")
+        timeout = self._QUERY_TIMEOUT_MS
 
-        sn = self._get_serial_number_blocking(timeout_ms)
-        pcb_ver = self._get_pcb_version_blocking(timeout_ms)
-        fw_ver = self._get_firmware_version_blocking(timeout_ms)
-        mech_ver = self._get_mechanical_version_blocking(timeout_ms)
+        fw = self._get_firmware_version_blocking(timeout)
+        mech = self._get_mechanical_version_blocking(timeout)
+        pcb = self._get_pcb_version_blocking(timeout)
+        sn = self._get_serial_number_blocking(timeout)
 
         return DeviceInfo(
             serial_number=sn,
-            pcb_version=pcb_ver,
-            firmware_version=fw_ver,
-            mechanical_version=mech_ver,
+            pcb_version=pcb,
+            firmware_version=fw,
+            mechanical_version=mech,
             timestamp=time.time(),
         )
 
@@ -206,16 +190,14 @@ class VersionManager:
         cmd = msg.data[0]
 
         match cmd:
-            case self._SN_CMD if len(msg.data) >= 2:
-                # Serial number frame: 0xC0 + byte_index + 6 bytes data
-                # O6 uses byte index (0, 6, 12, 18) instead of sequential frame ID
-                byte_index = msg.data[1]
+            case self._SN_CMD if len(msg.data) == 8 or len(msg.data) == 3:
+                frame_id = msg.data[1]
                 frame_data = bytes(msg.data[2:8])
 
                 if self._sn_frames is None:
                     self._sn_frames = SerialNumberFrames()
 
-                self._sn_frames = self._sn_frames.add_frame(byte_index, frame_data)
+                self._sn_frames = self._sn_frames.add_frame(frame_id, frame_data)
 
                 if self._sn_frames.is_complete():
                     sn = self._sn_frames.assemble()

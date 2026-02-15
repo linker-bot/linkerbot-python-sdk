@@ -8,6 +8,8 @@ from linkerbot.exceptions import TimeoutError
 
 T = TypeVar("T")
 
+_SENTINEL = object()
+
 
 class DataRelay(Generic[T]):
     """Thread-safe data relay: cache + blocking wait + event sink.
@@ -26,20 +28,21 @@ class DataRelay(Generic[T]):
 
     def snapshot(self) -> T | None:
         """Return the most recently pushed value, or None."""
-        return self._latest
+        with self._lock:
+            return self._latest
 
     def wait(self, timeout_s: float) -> T:
         """Block until the next push() call, or raise TimeoutError."""
         event = threading.Event()
-        result_holder: dict[str, T | None] = {"data": None}
+        result_holder: dict[str, object] = {"data": _SENTINEL}
 
         with self._lock:
             self._waiters.append((event, result_holder))
 
         if event.wait(timeout_s):
-            if result_holder["data"] is None:
+            if result_holder["data"] is _SENTINEL:
                 raise TimeoutError(f"No data received within {timeout_s * 1000:.0f}ms")
-            return result_holder["data"]
+            return result_holder["data"]  # type: ignore[return-value]
         else:
             with self._lock:
                 if (event, result_holder) in self._waiters:
@@ -48,9 +51,8 @@ class DataRelay(Generic[T]):
 
     def push(self, data: T) -> None:
         """Update cache, wake all waiters, and notify sink."""
-        self._latest = data
-
         with self._lock:
+            self._latest = data
             for event, result_holder in self._waiters:
                 result_holder["data"] = data
                 event.set()

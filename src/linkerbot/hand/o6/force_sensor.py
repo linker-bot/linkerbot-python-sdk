@@ -58,11 +58,10 @@ class FrameBatch:
     """Internal helper for accumulating sensor data frames."""
 
     frames: Mapping[int, bytes] = field(default_factory=dict)
-    started_at: float = field(default_factory=time.time)
 
     def add_frame(self, frame_id: int, data: bytes) -> "FrameBatch":
         new_frames = {**self.frames, frame_id: data}
-        return FrameBatch(frames=new_frames, started_at=self.started_at)
+        return FrameBatch(frames=new_frames)
 
     def is_complete(self) -> bool:
         return len(self.frames) == 10
@@ -80,7 +79,7 @@ class SingleForceSensorManager:
     """Manager for a single finger's force sensor data acquisition.
 
     This class provides two access modes for force sensor operations:
-    1. Blocking mode: get_data_blocking() - wait for next complete data with timeout
+    1. Blocking mode: get_blocking() - wait for next complete data with timeout
     2. Cache mode: get_snapshot() - non-blocking read of most recent data
     """
 
@@ -105,7 +104,7 @@ class SingleForceSensorManager:
 
         self._relay = DataRelay[ForceSensorData]()
 
-    def get_data_blocking(self, timeout_ms: float = 1000) -> ForceSensorData:
+    def get_blocking(self, timeout_ms: float = 1000) -> ForceSensorData:
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
         self._send_request()
@@ -134,8 +133,11 @@ class SingleForceSensorManager:
         frame_data = bytes(msg.data[2:6])
         if frame_idx >= self._FRAME_COUNT:
             return
-        if self._frame_batch is None:
+        # Frame 0 starts a new batch, discarding any incomplete old one
+        if frame_idx == 0:
             self._frame_batch = FrameBatch()
+        elif self._frame_batch is None:
+            return
         self._frame_batch = self._frame_batch.add_frame(frame_idx, frame_data)
         if self._frame_batch.is_complete():
             complete_data = self._frame_batch.assemble()
@@ -171,8 +173,9 @@ class ForceSensorManager:
         }
         self._event_sink: Callable[[AllFingersData], None] | None = None
         self._sink_latest: dict[str, ForceSensorData] = {}
+        self._sink_updated: set[str] = set()
 
-    def get_data_blocking(self, timeout_ms: float = 1000) -> AllFingersData:
+    def get_blocking(self, timeout_ms: float = 1000) -> AllFingersData:
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
         deadline = time.monotonic() + timeout_ms / 1000.0
@@ -185,18 +188,20 @@ class ForceSensorManager:
                 errors.append(name)
                 return
             try:
-                results[name] = sensor.get_data_blocking(timeout_ms=remaining * 1000)
+                results[name] = sensor.get_blocking(timeout_ms=remaining * 1000)
             except TimeoutError:
                 errors.append(name)
 
-        threads = []
+        threads: list[tuple[str, threading.Thread]] = []
         for name, sensor in self._fingers.items():
             t = threading.Thread(target=fetch, args=(name, sensor), daemon=True)
             t.start()
-            threads.append(t)
-        for t in threads:
+            threads.append((name, t))
+        for name, t in threads:
             remaining = max(0, deadline - time.monotonic())
             t.join(timeout=remaining)
+            if t.is_alive():
+                errors.append(name)
         if errors:
             raise TimeoutError(f"Force sensor timeout for: {', '.join(errors)}")
         if len(results) != 5:
@@ -238,12 +243,14 @@ class ForceSensorManager:
     def _set_event_sink(self, sink: Callable[[AllFingersData], None]) -> None:
         self._event_sink = sink
         self._sink_latest = {}
+        self._sink_updated = set()
         for name, sensor in self._fingers.items():
             sensor._set_event_sink(lambda data, n=name: self._on_finger_data(n, data))
 
     def _on_finger_data(self, name: str, data: ForceSensorData) -> None:
         self._sink_latest[name] = data
-        if len(self._sink_latest) == 5:
+        self._sink_updated.add(name)
+        if len(self._sink_updated) == len(self._fingers):
             snapshot = AllFingersData(
                 thumb=self._sink_latest["thumb"],
                 index=self._sink_latest["index"],
@@ -251,6 +258,7 @@ class ForceSensorManager:
                 ring=self._sink_latest["ring"],
                 pinky=self._sink_latest["pinky"],
             )
+            self._sink_updated = set()
             if self._event_sink is not None:
                 self._event_sink(snapshot)
 

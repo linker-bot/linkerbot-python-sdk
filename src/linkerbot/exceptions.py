@@ -4,6 +4,8 @@ This module defines the exception hierarchy used throughout the SDK for
 consistent error handling and reporting.
 """
 
+import builtins
+
 
 class LinkerbotError(Exception):
     """Base exception for all Linkerbot SDK errors.
@@ -15,7 +17,7 @@ class LinkerbotError(Exception):
     pass
 
 
-class TimeoutError(LinkerbotError):
+class TimeoutError(LinkerbotError, builtins.TimeoutError):
     """Raised when an operation times out.
 
     This exception is raised when a blocking operation (such as waiting for

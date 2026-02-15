@@ -221,6 +221,10 @@ class SpeedManager:
             raw_speeds = speeds.to_raw()
         elif isinstance(speeds, list):
             raw_speeds = O6Speed.from_list(speeds).to_raw()
+        else:
+            raise ValidationError(
+                f"Expected O6Speed or list, got {type(speeds).__name__}"
+            )
 
         # Build and send message
         data = [self._CONTROL_CMD, *raw_speeds]
@@ -535,9 +539,9 @@ class AccelerationManager:
                 )
             # Validate acceleration values (0-100 range)
             for i, acceleration in enumerate(accelerations):
-                if not isinstance(acceleration, float):
+                if not isinstance(acceleration, (float, int)):
                     raise ValidationError(
-                        f"Acceleration {i} must be float, got {type(acceleration)}"
+                        f"Acceleration {i} must be float or int, got {type(acceleration)}"
                     )
             raw_accelerations = O6Acceleration.from_list(accelerations).to_raw()
 
