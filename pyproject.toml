@@ -12,12 +12,7 @@ requires = ["uv_build>=0.9.8,<0.10.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-dev = [
-    "matplotlib>=3.10.8",
-    "ruff>=0.15.0",
-    "ty>=0.0.15",
-    "uv-bump>=0.4.1",
-]
+dev = ["matplotlib>=3.10.8", "ruff>=0.15.0", "ty>=0.0.15", "uv-bump>=0.4.1"]
 test = ["pytest>=9.0.2", "pytest-timeout>=2.4.0"]
 
 [[tool.uv.index]]
@@ -26,24 +21,24 @@ default = true
 
 [[tool.uv.index]]
 name = "gitea-linker-bot"
-url = "https://gitea.darkjason.com/api/packages/linker-bot/pypi/simple/"
-publish-url = "https://gitea.darkjason.com/api/packages/linker-bot/pypi"
+url = "https://gitea.linkerhub.work/api/packages/linker-bot/pypi/simple/"
+publish-url = "https://gitea.linkerhub.work/api/packages/linker-bot/pypi"
 explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "interactive: Interactive tests requiring human observation",
-    "l6: Tests for L6 robotic hand",
-    "l20lite: Tests for L20Lite robotic hand",
-    "l25: Tests for L25 robotic hand",
-    "o6: Tests for O6 robotic hand",
-    "slow: Tests that take longer to run",
-    "lifecycle: Connection and lifecycle tests",
-    "control: Angle, speed, and torque control tests",
-    "sensor: Temperature, current, fault, and force sensor tests",
-    "polling: Background polling tests",
-    "streaming: Event streaming tests",
+  "interactive: Interactive tests requiring human observation",
+  "l6: Tests for L6 robotic hand",
+  "l20lite: Tests for L20Lite robotic hand",
+  "l25: Tests for L25 robotic hand",
+  "o6: Tests for O6 robotic hand",
+  "slow: Tests that take longer to run",
+  "lifecycle: Connection and lifecycle tests",
+  "control: Angle, speed, and torque control tests",
+  "sensor: Temperature, current, fault, and force sensor tests",
+  "polling: Background polling tests",
+  "streaming: Event streaming tests",
 ]
 addopts = ["-v", "--strict-markers", "-m", "not interactive"]
 timeout = 120

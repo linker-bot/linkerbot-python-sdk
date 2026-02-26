@@ -24,7 +24,7 @@ jobs:
         run: uv build
       - name: Auth
         run: |
-          uv auth login gitea.darkjason.com --username action --password ${{ secrets.ACTION_PAT }}
+          uv auth login gitea.linkerhub.work --username action --password ${{ secrets.ACTION_PAT }}
       - name: Publish
         run: uv publish --index gitea-linker-bot
         env:
