@@ -1,0 +1,27 @@
+name: Update docs
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/zh/**"
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Install mdbook
+        uses: peaceiris/actions-mdbook@v2
+      - name: Build html
+        run: mdbook build docs/zh
+      - uses: burnett01/rsync-deployments@v8
+        with:
+          path: "docs/zh/book/"
+          remote_host: ${{ secrets.SSH_HOST }}
+          remote_user: ${{ secrets.SSH_USER }}
+          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          remote_port: ${{ secrets.SSH_PORT }}
+          remote_path: ${{ vars.REMOTE_PATH }}
+          switches: "--delete --verbose --backup --recursive"

@@ -32,3 +32,7 @@ sync-oss:
 [group('docs')]
 preview:
     mdbook serve docs/zh
+
+[group('docs')]
+build-docs:
+    mdbook build docs/zh
