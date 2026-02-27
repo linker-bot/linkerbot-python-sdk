@@ -33,4 +33,4 @@ with L6(side="left", interface_name="can0") as hand:
     print(f"当前角度：{data.angles.to_list()}")
 ```
 
-更多用法请参阅[完整文档](docs/zh/src/SUMMARY.md)。
+更多用法请参阅[完整文档](https://docs.linkerhub.work/sdk/zh-cn/)。
