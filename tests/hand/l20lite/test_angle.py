@@ -95,7 +95,7 @@ class TestAngleManagerSetAngles:
 
         thumb_abd stays at 100 due to mechanical limit.
         """
-        target = [18, 100.0, 0.0, 0.0, 0.0, 0.0] + [100] * 4
+        target = [28, 100.0, 0.0, 0.0, 0.0, 0.0] + [100] * 4
 
         l20lite_hand.angle.set_angles(target)
         time.sleep(5.0)
@@ -179,10 +179,10 @@ class TestAngleInteractive:
             action=lambda: move_and_wait(l20lite_hand, [100.0] * 10, wait_sec=5.0),
             expected="All fingers should be fully open / extended",
         ).step(
-            instruction="Setting all fingers to closed grip [0, 100, 0, 0, 0, 0, 0, 0, 0, 0]",
+            instruction="Setting all fingers to closed grip [0, 0, 15, 15, 15, 15, 0, 0, 0, 0]",
             action=lambda: move_and_wait(
                 l20lite_hand,
-                [0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 15.0, 15.0, 15.0, 15.0, 0.0, 0.0, 0.0, 0.0],
                 wait_sec=5.0,
             ),
             expected="All fingers should be gripped closed (thumb abduction stays open)",
@@ -260,6 +260,10 @@ class TestAngleInteractive:
         for pct in [0, 25, 50, 75, 100]:
             # All fingers go to pct, except thumb_abd stays at 100
             target = [float(pct)] * 10
+            if pct == 0:
+                target[0] = (
+                    15  # prevent the thumb from being caught by the bent index finger
+                )
             target[1] = 100.0  # thumb_abd always 100
             target[9] = 100.0  # thumb_yaw always 100
             session.step(
