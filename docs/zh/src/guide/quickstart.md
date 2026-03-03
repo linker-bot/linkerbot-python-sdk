@@ -21,10 +21,10 @@ from linkerbot import L6
 
 with L6(side="left", interface_name="can0") as hand:
     # 张开手掌
-    hand.angle.set_angles([0, 0, 0, 0, 0, 0])
+    hand.angle.set_angles([100, 50, 100, 100, 100, 100])
 
     # 握拳
-    hand.angle.set_angles([100, 50, 100, 100, 100, 100])
+    hand.angle.set_angles([0, 0, 0, 0, 0, 0])
 ```
 
 关节顺序：`[拇指弯曲, 拇指侧摆, 食指, 中指, 无名指, 小指]`
@@ -87,11 +87,11 @@ with L6(side="left", interface_name="can0") as hand:
     hand.speed.set_speeds([50, 50, 50, 50, 50, 50])
 
     # 张开
-    hand.angle.set_angles([0, 0, 0, 0, 0, 0])
+    hand.angle.set_angles([100, 50, 100, 100, 100, 100])
     time.sleep(1)
 
     # 握拳
-    hand.angle.set_angles([100, 50, 100, 100, 100, 100])
+    hand.angle.set_angles([0, 0, 0, 0, 0, 0])
     time.sleep(1)
 
     # 读取状态
