@@ -6,7 +6,17 @@ Linkerbot 灵巧手纯 Python SDK。
 
 ## 安装
 
-目前仅支持从 Git 仓库安装：
+从 PyPI 安装：
+
+```bash
+# pip
+pip install linkerbot-py
+
+# uv
+uv add linkerbot-py
+```
+
+从 Git 仓库安装：
 
 ```bash
 # pip
@@ -22,10 +32,10 @@ uv add "linkerbot @ git+https://github.com/linker-bot/linkerbot-python-sdk"
 from linkerbot import L6
 
 with L6(side="left", interface_name="can0") as hand:
-    # 张开手掌
+    # 握拳
     hand.angle.set_angles([0, 0, 0, 0, 0, 0])
 
-    # 握拳
+    # 张开
     hand.angle.set_angles([100, 50, 100, 100, 100, 100])
 
     # 读取角度

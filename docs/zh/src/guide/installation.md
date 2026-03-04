@@ -1,15 +1,21 @@
 # 安装
 
-> 目前 SDK 尚未发布到 PyPI，仅支持从 Git 仓库安装。
-
-## 使用 pip
+从 PyPI 安装：
 
 ```bash
-pip install git+https://github.com/linker-bot/linkerbot-python-sdk.git
+# pip
+pip install linkerbot-py
+
+# uv
+uv add linkerbot-py
 ```
 
-## 使用 uv
+从 Git 仓库安装：
 
 ```bash
+# pip
+pip install git+https://github.com/linker-bot/linkerbot-python-sdk.git
+
+# uv
 uv add "linkerbot @ git+https://github.com/linker-bot/linkerbot-python-sdk"
 ```
