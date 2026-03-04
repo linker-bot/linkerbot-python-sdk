@@ -152,6 +152,8 @@ class ForceSensorManager:
     and provides unified access to sensor data from all fingers.
     """
 
+    _MCU_INTER_REQUEST_DELAY_S = 0.004  # 4ms - MCU can only handle one finger at a time
+
     FINGER_COMMANDS = {
         "thumb": 0xB1,
         "index": 0xB2,
@@ -182,21 +184,31 @@ class ForceSensorManager:
         results: dict[str, ForceSensorData] = {}
         errors: list[str] = []
 
-        def fetch(name: str, sensor: SingleForceSensorManager) -> None:
+        def wait_for(name: str, sensor: SingleForceSensorManager) -> None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 errors.append(name)
                 return
             try:
-                results[name] = sensor.get_blocking(timeout_ms=remaining * 1000)
+                results[name] = sensor._relay.wait(remaining)
             except TimeoutError:
                 errors.append(name)
 
+        # Start waiter threads before sending
         threads: list[tuple[str, threading.Thread]] = []
         for name, sensor in self._fingers.items():
-            t = threading.Thread(target=fetch, args=(name, sensor), daemon=True)
+            t = threading.Thread(target=wait_for, args=(name, sensor), daemon=True)
             t.start()
             threads.append((name, t))
+
+        # Send requests sequentially with 4ms MCU delay
+        finger_list = list(self._fingers.values())
+        for i, sensor in enumerate(finger_list):
+            if i > 0:
+                time.sleep(self._MCU_INTER_REQUEST_DELAY_S)
+            sensor._send_request()
+
+        # Collect results
         for name, t in threads:
             remaining = max(0, deadline - time.monotonic())
             t.join(timeout=remaining)
@@ -263,5 +275,8 @@ class ForceSensorManager:
                 self._event_sink(snapshot)
 
     def _send_sense_request(self) -> None:
-        for sensor in self._fingers.values():
+        finger_list = list(self._fingers.values())
+        for i, sensor in enumerate(finger_list):
+            if i > 0:
+                time.sleep(self._MCU_INTER_REQUEST_DELAY_S)
             sensor._send_request()
