@@ -366,8 +366,8 @@ wheels = [
 ]
 
 [[package]]
-name = "linkerbot"
-version = "0.2.0"
+name = "linkerbot-py"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/" }, marker = "python_full_version < '3.11'" },
