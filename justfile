@@ -28,6 +28,7 @@ switch:
 [group('git')]
 sync-oss:
     git push oss main
+    git push oss --tags
 
 [group('docs')]
 preview:
