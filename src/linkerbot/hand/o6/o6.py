@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import Literal
 
 from linkerbot.comm import CANMessageDispatcher
-from linkerbot.exceptions import StateError, ValidationError
+from linkerbot.exceptions import CANError, StateError, ValidationError
 from linkerbot.queue import IterableQueue
 
 from .angle import AngleManager
@@ -102,8 +102,11 @@ class O6:
             interface_type: Type of CAN interface backend (default: 'socketcan').
         """
         # Create CAN message dispatcher
+        self._bus_error: Exception | None = None
         self._dispatcher = CANMessageDispatcher(
-            interface_name=interface_name, interface_type=interface_type
+            interface_name=interface_name,
+            interface_type=interface_type,
+            on_bus_error=self._on_bus_error,
         )
 
         if side not in ("left", "right"):
@@ -329,7 +332,13 @@ class O6:
         """
         return self._closed
 
+    def _on_bus_error(self, error: Exception) -> None:
+        self._bus_error = error
+        self._closed = True
+
     def _ensure_open(self) -> None:
+        if self._bus_error is not None:
+            raise CANError(f"CAN bus unavailable: {self._bus_error}")
         if self._closed:
             raise StateError(
                 "O6 interface is closed. Create a new instance or use context manager."

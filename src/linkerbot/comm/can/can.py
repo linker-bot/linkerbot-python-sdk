@@ -6,6 +6,8 @@ from collections.abc import Callable
 
 import can
 
+from linkerbot.exceptions import CANError
+
 
 class CANMessageDispatcher:
     """A thread-safe CAN message dispatcher that manages subscribers and message routing.
@@ -18,12 +20,20 @@ class CANMessageDispatcher:
     SEND_QUEUE_SIZE = 1000
     SEND_INTERVAL_S = 0.001
 
-    def __init__(self, interface_name: str, interface_type: str = "socketcan"):
+    def __init__(
+        self,
+        interface_name: str,
+        interface_type: str = "socketcan",
+        on_bus_error: Callable[[Exception], None] | None = None,
+        max_consecutive_errors: int = 10,
+    ):
         """Initialize the CAN message dispatcher.
 
         Args:
             interface_name: Name of the CAN interface (e.g., "can0", "vcan0").
             interface_type: Type of CAN interface backend (default: "socketcan").
+            on_bus_error: Optional callback invoked once when the bus becomes unavailable.
+            max_consecutive_errors: Number of consecutive errors before declaring bus dead.
         """
         self._bitrate = 1_000_000
         self._bus: can.BusABC = can.Bus(
@@ -36,6 +46,10 @@ class CANMessageDispatcher:
         self._send_queue: queue.Queue[can.Message] = queue.Queue(
             maxsize=self.SEND_QUEUE_SIZE
         )
+        self._on_bus_error = on_bus_error
+        self._max_consecutive_errors = max_consecutive_errors
+        self._bus_error: Exception | None = None
+        self._error_reported = False
         self._recv_thread: threading.Thread = threading.Thread(
             target=self._recv_loop, daemon=True, name="CANMessageDispatcher.recv_loop"
         )
@@ -44,6 +58,20 @@ class CANMessageDispatcher:
         )
         self._recv_thread.start()
         self._send_thread.start()
+
+    def _handle_bus_error(self, error: Exception) -> None:
+        """Handle a fatal bus error by stopping the dispatcher and notifying."""
+        if self._error_reported:
+            return
+        self._error_reported = True
+        self._running = False
+        self._bus_error = error
+        self._logger.error(f"CAN bus fatal error, stopping dispatcher: {error}")
+        if self._on_bus_error is not None:
+            try:
+                self._on_bus_error(error)
+            except Exception as e:
+                self._logger.error(f"Error in on_bus_error callback: {e}")
 
     def _recv_loop(self) -> None:
         """Background thread loop for receiving and dispatching CAN messages.
@@ -69,6 +97,9 @@ class CANMessageDispatcher:
             except Exception as e:
                 consecutive_errors += 1
                 self._logger.error(f"Error receiving CAN message: {e}")
+                if consecutive_errors >= self._max_consecutive_errors:
+                    self._handle_bus_error(e)
+                    return
                 time.sleep(min(0.1 * consecutive_errors, 1.0))
 
     def subscribe(self, callback: Callable[[can.Message], None]) -> None:
@@ -98,6 +129,7 @@ class CANMessageDispatcher:
         Dequeues messages from the send queue and transmits them at a fixed
         interval of 150 us to avoid flooding the CAN bus.
         """
+        consecutive_errors = 0
         while self._running:
             try:
                 msg = self._send_queue.get(timeout=0.01)
@@ -106,12 +138,17 @@ class CANMessageDispatcher:
             try:
                 deadline = time.monotonic() + self.SEND_INTERVAL_S
                 self._bus.send(msg)
+                consecutive_errors = 0
                 # Busy-wait for the remaining interval (time.sleep is too coarse
                 # for microsecond precision).
                 while time.monotonic() < deadline:
                     pass
             except Exception as e:
+                consecutive_errors += 1
                 self._logger.error(f"Error sending CAN message: {e}")
+                if consecutive_errors >= self._max_consecutive_errors:
+                    self._handle_bus_error(e)
+                    return
 
     def send(self, msg: can.Message) -> None:
         """Enqueue a CAN message for rate-limited sending.
@@ -120,9 +157,12 @@ class CANMessageDispatcher:
             msg: The CAN message to send.
 
         Raises:
+            CANError: If the CAN bus is unavailable due to a fatal error.
             RuntimeError: If the dispatcher has been stopped.
             queue.Full: If the send queue is full (1000 messages).
         """
+        if self._bus_error is not None:
+            raise CANError(f"CAN bus unavailable: {self._bus_error}")
         if not self._running:
             raise RuntimeError("Cannot send on a stopped CANMessageDispatcher")
         self._send_queue.put_nowait(msg)
@@ -133,14 +173,21 @@ class CANMessageDispatcher:
         Stops the receive and send loops, waits for background threads to finish,
         and shuts down the CAN bus interface.
         """
+        self._error_reported = True
         self._running = False
+        current = threading.current_thread()
         for thread in (self._recv_thread, self._send_thread):
+            if thread is current:
+                continue
             if thread.is_alive():
                 thread.join(timeout=1.0)
                 if thread.is_alive():
                     self._logger.warning(f"{thread.name} did not stop within timeout")
                     return
-        self._bus.shutdown()
+        try:
+            self._bus.shutdown()
+        except Exception:
+            pass
         with self._subscribers_lock:
             self._subscribers.clear()
 
