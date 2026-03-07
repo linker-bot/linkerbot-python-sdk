@@ -6,14 +6,14 @@
 
 扭矩值范围为 **0-100**（无量纲，表示关节电机的相对扭矩百分比），对应 L6 灵巧手的 6 个关节电机：
 
-| 索引 | 属性 | 关节电机 |
-|------|------|------|
-| 0 | `thumb_flex` | 拇指弯曲 |
-| 1 | `thumb_abd` | 拇指侧摆 |
-| 2 | `index` | 食指 |
-| 3 | `middle` | 中指 |
-| 4 | `ring` | 无名指 |
-| 5 | `pinky` | 小指 |
+| 索引 | 属性         | 关节电机 |
+| ---- | ------------ | -------- |
+| 0    | `thumb_flex` | 拇指弯曲 |
+| 1    | `thumb_abd`  | 拇指侧摆 |
+| 2    | `index`      | 食指     |
+| 3    | `middle`     | 中指     |
+| 4    | `ring`       | 无名指   |
+| 5    | `pinky`      | 小指     |
 
 ## 设置扭矩
 
@@ -25,12 +25,7 @@ hand.torque.set_torques([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
 from linkerbot.hand.l6 import L6Torque
 
 target = L6Torque(
-    thumb_flex=50.0,
-    thumb_abd=30.0,
-    index=60.0,
-    middle=60.0,
-    ring=60.0,
-    pinky=60.0
+    thumb_flex=50.0, thumb_abd=30.0, index=60.0, middle=60.0, ring=60.0, pinky=60.0
 )
 hand.torque.set_torques(target)
 ```

@@ -16,17 +16,18 @@ hand.version.get_device_info() -> DeviceInfo
 
 返回 `DeviceInfo` 对象，包含：
 
-| 属性 | 类型 | 说明 |
-|------|------|------|
-| `serial_number` | `str` | 设备序列号 |
-| `pcb_version` | `Version` | PCB 硬件版本 |
-| `firmware_version` | `Version` | 固件版本 |
-| `mechanical_version` | `Version` | 机械结构版本 |
-| `timestamp` | `float` | 获取时间（Unix 时间戳） |
+| 属性                 | 类型      | 说明                    |
+| -------------------- | --------- | ----------------------- |
+| `serial_number`      | `str`     | 设备序列号              |
+| `pcb_version`        | `Version` | PCB 硬件版本            |
+| `firmware_version`   | `Version` | 固件版本                |
+| `mechanical_version` | `Version` | 机械结构版本            |
+| `timestamp`          | `float`   | 获取时间（Unix 时间戳） |
 
 `Version` 对象包含 `major`、`minor`、`patch` 属性，字符串格式为 `V{major}.{minor}.{patch}`。
 
 **异常**：
+
 - `TimeoutError`：请求超时
 
 ## 示例

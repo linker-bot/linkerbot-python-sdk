@@ -10,10 +10,10 @@ from linkerbot import L6
 
 通过 `hand.current` 访问电流读取功能，支持三种模式：
 
-| 模式 | 方法 | 用途 |
-|------|------|------|
-| 阻塞读取 | `get_blocking()` | 单次查询 |
-| 流式读取 | `hand.stream()` | 持续监测 |
+| 模式     | 方法             | 用途         |
+| -------- | ---------------- | ------------ |
+| 阻塞读取 | `get_blocking()` | 单次查询     |
+| 流式读取 | `hand.stream()`  | 持续监测     |
 | 缓存读取 | `get_snapshot()` | 读取最近缓存 |
 
 ## 读取电流
@@ -27,20 +27,22 @@ data = hand.current.get_blocking(timeout_ms=500)
 
 # 访问各手指电流 (单位：mA)
 print(data.currents.thumb_flex)  # 拇指弯曲
-print(data.currents.thumb_abd)   # 拇指侧摆
-print(data.currents.index)       # 食指
-print(data.currents.middle)      # 中指
-print(data.currents.ring)        # 无名指
-print(data.currents.pinky)       # 小指
+print(data.currents.thumb_abd)  # 拇指侧摆
+print(data.currents.index)  # 食指
+print(data.currents.middle)  # 中指
+print(data.currents.ring)  # 无名指
+print(data.currents.pinky)  # 小指
 
 # 索引访问
 print(data.currents[0])  # thumb_flex
 ```
 
 **参数**:
+
 - `timeout_ms`: 超时时间 (毫秒)，默认 100
 
 **异常**:
+
 - `TimeoutError`: 超时未收到响应
 
 ### 缓存读取
@@ -110,10 +112,12 @@ with L6(side="left", interface_name="can0") as hand:
         for event in hand.stream():
             match event:
                 case CurrentEvent(data=data):
-                    records.append({
-                        "time": data.timestamp - start,
-                        "currents": data.currents.to_list()
-                    })
+                    records.append(
+                        {
+                            "time": data.timestamp - start,
+                            "currents": data.currents.to_list(),
+                        }
+                    )
             if time.time() - start > 5:  # 记录 5 秒
                 break
     finally:

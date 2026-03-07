@@ -4,15 +4,24 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v6
         with:
-          version: "0.10.0"
-          enable-cache: true
-      - name: Install python
-        run: uv python install
-      - run: |
+          fetch-depth: 0
+
+      - name: AutoCorrect
+        uses: huacnlee/autocorrect-action@main
+
+      - name: Install dprint
+        run: curl -fsSL https://dprint.dev/install.sh | sh
+      - name: Check formatting
+        run: ~/.dprint/bin/dprint check
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.10.8"
+      - name: Lint
+        run: |
           uv sync --all-groups
           uv run ruff check .
           uv run ruff format --check --diff .

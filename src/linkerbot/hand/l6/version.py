@@ -189,7 +189,7 @@ class VersionManager:
         cmd = msg.data[0]
 
         match cmd:
-            case self._SN_CMD if len(msg.data) == 8 or len(msg.data) == 3:
+            case self._SN_CMD if len(msg.data) >= 2:
                 frame_id = msg.data[1]
                 frame_data = bytes(msg.data[2:8])
 

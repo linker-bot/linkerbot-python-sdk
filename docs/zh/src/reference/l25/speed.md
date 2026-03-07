@@ -16,22 +16,22 @@ hand.speed.set_speeds([50.0] * 16)
 
 # 使用 L25Speed 对象
 speed = L25Speed(
-    thumb_abd=30.0,     # 拇指侧摆
-    thumb_yaw=30.0,    # 拇指旋转
-    thumb_root1=30.0,   # 拇指根部
-    thumb_tip=30.0,     # 拇指指尖
-    index_abd=80.0,     # 食指侧摆
-    index_root1=80.0,   # 食指根部
-    index_tip=80.0,     # 食指指尖
-    middle_abd=80.0,    # 中指侧摆
+    thumb_abd=30.0,  # 拇指侧摆
+    thumb_yaw=30.0,  # 拇指旋转
+    thumb_root1=30.0,  # 拇指根部
+    thumb_tip=30.0,  # 拇指指尖
+    index_abd=80.0,  # 食指侧摆
+    index_root1=80.0,  # 食指根部
+    index_tip=80.0,  # 食指指尖
+    middle_abd=80.0,  # 中指侧摆
     middle_root1=80.0,  # 中指根部
-    middle_tip=80.0,    # 中指指尖
-    ring_abd=80.0,      # 无名指侧摆
-    ring_root1=80.0,    # 无名指根部
-    ring_tip=80.0,      # 无名指指尖
-    pinky_abd=80.0,    # 小指侧摆
+    middle_tip=80.0,  # 中指指尖
+    ring_abd=80.0,  # 无名指侧摆
+    ring_root1=80.0,  # 无名指根部
+    ring_tip=80.0,  # 无名指指尖
+    pinky_abd=80.0,  # 小指侧摆
     pinky_root1=80.0,  # 小指根部
-    pinky_tip=80.0,    # 小指指尖
+    pinky_tip=80.0,  # 小指指尖
 )
 hand.speed.set_speeds(speed)
 ```
@@ -89,11 +89,22 @@ from linkerbot.hand.l25 import L25Speed
 with L25(side="left", interface_name="can0") as hand:
     # 设置速度
     speed = L25Speed(
-        thumb_abd=30.0, thumb_yaw=30.0, thumb_root1=30.0, thumb_tip=30.0,
-        index_abd=80.0, index_root1=80.0, index_tip=80.0,
-        middle_abd=80.0, middle_root1=80.0, middle_tip=80.0,
-        ring_abd=80.0, ring_root1=80.0, ring_tip=80.0,
-        pinky_abd=80.0, pinky_root1=80.0, pinky_tip=80.0,
+        thumb_abd=30.0,
+        thumb_yaw=30.0,
+        thumb_root1=30.0,
+        thumb_tip=30.0,
+        index_abd=80.0,
+        index_root1=80.0,
+        index_tip=80.0,
+        middle_abd=80.0,
+        middle_root1=80.0,
+        middle_tip=80.0,
+        ring_abd=80.0,
+        ring_root1=80.0,
+        ring_tip=80.0,
+        pinky_abd=80.0,
+        pinky_root1=80.0,
+        pinky_tip=80.0,
     )
     hand.speed.set_speeds(speed)
 

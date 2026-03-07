@@ -16,16 +16,16 @@ hand.torque.set_torques([50.0, 50.0, 60.0, 60.0, 60.0, 60.0, 30.0, 30.0, 30.0, 3
 
 # 使用 L20liteTorque 对象
 torques = L20liteTorque(
-    thumb_flex=50.0,   # 拇指弯曲
-    thumb_abd=50.0,    # 拇指侧摆
-    index_flex=60.0,   # 食指弯曲
+    thumb_flex=50.0,  # 拇指弯曲
+    thumb_abd=50.0,  # 拇指侧摆
+    index_flex=60.0,  # 食指弯曲
     middle_flex=60.0,  # 中指弯曲
-    ring_flex=60.0,    # 无名指弯曲
-    pinky_flex=60.0,   # 小指弯曲
-    index_abd=30.0,    # 食指侧摆
-    ring_abd=30.0,     # 无名指侧摆
-    pinky_abd=30.0,    # 小指侧摆
-    thumb_yaw=30.0,    # 拇指旋转
+    ring_flex=60.0,  # 无名指弯曲
+    pinky_flex=60.0,  # 小指弯曲
+    index_abd=30.0,  # 食指侧摆
+    ring_abd=30.0,  # 无名指侧摆
+    pinky_abd=30.0,  # 小指侧摆
+    thumb_yaw=30.0,  # 拇指旋转
 )
 hand.torque.set_torques(torques)
 ```

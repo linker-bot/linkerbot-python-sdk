@@ -126,7 +126,10 @@ class InteractiveSession:
             else:
                 passed = result == "y"
 
-            notes = input("Notes (Enter to skip): ").strip()
+            if result == "y":
+                notes = ""
+            else:
+                notes = input("Notes (Enter to skip): ").strip()
 
             self._results.append(
                 StepResult(

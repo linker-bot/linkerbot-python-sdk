@@ -1,14 +1,20 @@
 [project]
 name = "linkerbot-py"
-version = "0.2.2"
+version = "0.3.1"
 description = "Linkerbot Python SDK"
 readme = "README.md"
 authors = [{ name = "Jason Yip", email = "yezi.2022@outlook.com" }]
 requires-python = ">=3.10"
-dependencies = ["numpy>=2.2.6", "python-can>=4.6.1"]
+dependencies = [
+  "numpy>=2.2.6",
+  "pin>=3.9.0",
+  "pydantic>=2.12.5",
+  "python-can>=4.6.1",
+  "scipy>=1.15.3",
+]
 
 [build-system]
-requires = ["uv_build>=0.9.8,<0.10.0"]
+requires = ["uv_build>=0.9.8,<0.11.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
@@ -17,10 +23,6 @@ test = ["pytest>=9.0.2", "pytest-timeout>=2.4.0"]
 
 [tool.uv.build-backend]
 module-name = "linkerbot"
-
-[[tool.uv.index]]
-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
-default = true
 
 [[tool.uv.index]]
 name = "gitea-linker-bot"
@@ -42,6 +44,14 @@ markers = [
   "sensor: Temperature, current, fault, and force sensor tests",
   "polling: Background polling tests",
   "streaming: Event streaming tests",
+  "a7_lite: Tests for A7lite robotic arm",
+  "a7: Tests for A7 robotic arm",
+  "basic: Basic functionality tests",
+  "safety: Safety verification tests",
+  "motion: Motion control tests",
+  "extra: Extra tests (explicit invocation only)",
 ]
 addopts = ["-v", "--strict-markers", "-m", "not interactive"]
-timeout = 120
+
+[tool.ty.analysis]
+replace-imports-with-any = ["pinocchio.**"]

@@ -10,14 +10,14 @@ L20Lite 灵巧手的故障检测功能。
 
 ## 故障码表
 
-| 故障码 | 值 | 说明 |
-|--------|----|----|
-| `NONE` | 0 | 无故障 |
-| `VOLTAGE_ABNORMAL` | 1 | 过压/欠压 |
-| `ENCODER_ABNORMAL` | 2 | 磁编码器异常 |
-| `OVERTEMPERATURE` | 4 | 温度过热 |
-| `OVERCURRENT` | 8 | 电流过流 |
-| `OVERLOAD` | 32 | 负载过载 |
+| 故障码             | 值 | 说明         |
+| ------------------ | -- | ------------ |
+| `NONE`             | 0  | 无故障       |
+| `VOLTAGE_ABNORMAL` | 1  | 过压/欠压    |
+| `ENCODER_ABNORMAL` | 2  | 磁编码器异常 |
+| `OVERTEMPERATURE`  | 4  | 温度过热     |
+| `OVERCURRENT`      | 8  | 电流过流     |
+| `OVERLOAD`         | 32 | 负载过载     |
 
 ## 读取故障
 
@@ -33,13 +33,16 @@ except TimeoutError:
 ```
 
 **参数**：
+
 - `timeout_ms`：超时时间（毫秒），默认 100
 
 **返回值**：`FaultData` 对象，包含：
+
 - `faults`：`L20liteFault` 故障数据
 - `timestamp`：时间戳
 
 **异常**：
+
 - `TimeoutError`：超时未收到响应
 
 ### 缓存读取
@@ -56,18 +59,18 @@ if data:
 
 ### L20liteFault 属性
 
-| 属性 | 说明 |
-|------|------|
-| `thumb_flex` | 拇指弯曲 |
-| `thumb_abd` | 拇指侧摆 |
-| `index_flex` | 食指弯曲 |
-| `middle_flex` | 中指弯曲 |
-| `ring_flex` | 无名指弯曲 |
-| `pinky_flex` | 小指弯曲 |
-| `index_abd` | 食指侧摆 |
-| `ring_abd` | 无名指侧摆 |
-| `pinky_abd` | 小指侧摆 |
-| `thumb_yaw` | 拇指旋转 |
+| 属性          | 说明       |
+| ------------- | ---------- |
+| `thumb_flex`  | 拇指弯曲   |
+| `thumb_abd`   | 拇指侧摆   |
+| `index_flex`  | 食指弯曲   |
+| `middle_flex` | 中指弯曲   |
+| `ring_flex`   | 无名指弯曲 |
+| `pinky_flex`  | 小指弯曲   |
+| `index_abd`   | 食指侧摆   |
+| `ring_abd`    | 无名指侧摆 |
+| `pinky_abd`   | 小指侧摆   |
+| `thumb_yaw`   | 拇指旋转   |
 
 ### L20liteFault 方法
 

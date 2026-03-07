@@ -17,8 +17,8 @@ class CANMessageDispatcher:
     to continuously receive messages and dispatch them to registered callbacks.
     """
 
-    SEND_QUEUE_SIZE = 1000
-    SEND_INTERVAL_S = 0.001
+    SEND_QUEUE_SIZE = 2000
+    SEND_INTERVAL_S = 0.0003
 
     def __init__(
         self,

@@ -13,16 +13,16 @@ L25 灵巧手的故障检测与清除功能。
 
 L25 使用位标志（Flag）表示故障状态，每个关节电机可同时存在多个故障。
 
-| 故障码 | 值 | 说明 |
-|--------|----|----|
-| `NONE` | 0 | 无故障 |
-| `MOTOR_ROTOR_LOCK` | 1 | 电机转子锁死 |
-| `MOTOR_OVER_CURRENT` | 2 | 电机过流 |
-| `MOTOR_STALL_FAULT` | 4 | 电机堵转故障 |
-| `VOLTAGE_ABNORMAL` | 8 | 电压异常 |
-| `SELF_CHECK_ABNORMAL` | 16 | 自检异常 |
-| `OVER_TEMPERATURE` | 32 | 过温 |
-| `SOFT_ROTOR_LOCK` | 64 | 软件转子锁死 |
+| 故障码                | 值  | 说明         |
+| --------------------- | --- | ------------ |
+| `NONE`                | 0   | 无故障       |
+| `MOTOR_ROTOR_LOCK`    | 1   | 电机转子锁死 |
+| `MOTOR_OVER_CURRENT`  | 2   | 电机过流     |
+| `MOTOR_STALL_FAULT`   | 4   | 电机堵转故障 |
+| `VOLTAGE_ABNORMAL`    | 8   | 电压异常     |
+| `SELF_CHECK_ABNORMAL` | 16  | 自检异常     |
+| `OVER_TEMPERATURE`    | 32  | 过温         |
+| `SOFT_ROTOR_LOCK`     | 64  | 软件转子锁死 |
 | `MOTOR_COMM_ABNORMAL` | 128 | 电机通讯异常 |
 
 ## 读取故障
@@ -39,13 +39,16 @@ except TimeoutError:
 ```
 
 **参数**：
+
 - `timeout_ms`：超时时间（毫秒），默认 100
 
 **返回值**：`FaultData` 对象，包含：
+
 - `faults`：`L25Fault` 故障数据
 - `timestamp`：时间戳
 
 **异常**：
+
 - `TimeoutError`：超时未收到响应
 
 ### 缓存读取
@@ -92,24 +95,24 @@ finally:
 
 ### L25Fault 属性
 
-| 属性 | 说明 |
-|------|------|
-| `thumb_abd` | 拇指侧摆 |
-| `thumb_yaw` | 拇指旋转 |
-| `thumb_root1` | 拇指根部 |
-| `thumb_tip` | 拇指指尖 |
-| `index_abd` | 食指侧摆 |
-| `index_root1` | 食指根部 |
-| `index_tip` | 食指指尖 |
-| `middle_abd` | 中指侧摆 |
-| `middle_root1` | 中指根部 |
-| `middle_tip` | 中指指尖 |
-| `ring_abd` | 无名指侧摆 |
-| `ring_root1` | 无名指根部 |
-| `ring_tip` | 无名指指尖 |
-| `pinky_abd` | 小指侧摆 |
-| `pinky_root1` | 小指根部 |
-| `pinky_tip` | 小指指尖 |
+| 属性           | 说明       |
+| -------------- | ---------- |
+| `thumb_abd`    | 拇指侧摆   |
+| `thumb_yaw`    | 拇指旋转   |
+| `thumb_root1`  | 拇指根部   |
+| `thumb_tip`    | 拇指指尖   |
+| `index_abd`    | 食指侧摆   |
+| `index_root1`  | 食指根部   |
+| `index_tip`    | 食指指尖   |
+| `middle_abd`   | 中指侧摆   |
+| `middle_root1` | 中指根部   |
+| `middle_tip`   | 中指指尖   |
+| `ring_abd`     | 无名指侧摆 |
+| `ring_root1`   | 无名指根部 |
+| `ring_tip`     | 无名指指尖 |
+| `pinky_abd`    | 小指侧摆   |
+| `pinky_root1`  | 小指根部   |
+| `pinky_tip`    | 小指指尖   |
 
 ### L25Fault 方法
 

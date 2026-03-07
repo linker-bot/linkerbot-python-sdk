@@ -8,16 +8,16 @@ L6/O6 灵巧手通过 CAN 总线通信。构造函数中的 `interface_type` 参
 from linkerbot import L6
 
 hand = L6(
-    side="left",           # "left" 或 "right"
-    interface_name="can0", # 接口名称
-    interface_type="socketcan"  # 适配器类型
+    side="left",  # "left" 或 "right"
+    interface_name="can0",  # 接口名称
+    interface_type="socketcan",  # 适配器类型
 )
 ```
 
-| 参数 | 说明 |
-|------|------|
-| `side` | 左手 `"left"` 或右手 `"right"` |
-| `interface_name` | 接口名称，取决于操作系统和适配器 |
+| 参数             | 说明                               |
+| ---------------- | ---------------------------------- |
+| `side`           | 左手 `"left"` 或右手 `"right"`     |
+| `interface_name` | 接口名称，取决于操作系统和适配器   |
 | `interface_type` | CAN 适配器类型，默认 `"socketcan"` |
 
 ## Linux (SocketCAN)
@@ -40,11 +40,7 @@ sudo ip link set can0 up
 Windows 使用 PCAN 适配器：
 
 ```python
-hand = L6(
-    side="left",
-    interface_name="PCAN_USBBUS1",
-    interface_type="pcan"
-)
+hand = L6(side="left", interface_name="PCAN_USBBUS1", interface_type="pcan")
 ```
 
 其他适配器类型参考 [python-can 文档](https://python-can.readthedocs.io/en/stable/interfaces.html)。

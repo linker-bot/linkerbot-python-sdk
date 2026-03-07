@@ -17,11 +17,11 @@ hand.acceleration.set_accelerations([80.0, 80.0, 80.0, 80.0, 80.0, 80.0])
 # 使用 O6Acceleration 对象
 accel = O6Acceleration(
     thumb_flex=80.0,  # 拇指屈曲
-    thumb_abd=80.0,   # 拇指侧摆
-    index=80.0,       # 食指
-    middle=80.0,      # 中指
-    ring=80.0,        # 无名指
-    pinky=80.0        # 小指
+    thumb_abd=80.0,  # 拇指侧摆
+    index=80.0,  # 食指
+    middle=80.0,  # 中指
+    ring=80.0,  # 无名指
+    pinky=80.0,  # 小指
 )
 hand.acceleration.set_accelerations(accel)
 ```
@@ -92,14 +92,16 @@ from linkerbot.hand.o6 import O6Acceleration
 accel = O6Acceleration.from_deg_per_sec2([1000.0] * 6)
 
 # 设置不同的加速度
-accel = O6Acceleration.from_deg_per_sec2([
-    1500.0,  # 拇指屈曲
-    1200.0,  # 拇指侧摆
-    1800.0,  # 食指
-    1800.0,  # 中指
-    1800.0,  # 无名指
-    1800.0   # 小指
-])
+accel = O6Acceleration.from_deg_per_sec2(
+    [
+        1500.0,  # 拇指屈曲
+        1200.0,  # 拇指侧摆
+        1800.0,  # 食指
+        1800.0,  # 中指
+        1800.0,  # 无名指
+        1800.0,  # 小指
+    ]
+)
 ```
 
 ## 完整示例

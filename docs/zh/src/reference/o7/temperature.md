@@ -4,14 +4,14 @@
 
 **温度属性**
 
-| 属性 | 说明 |
-|------|------|
-| `thumb_flex` | 拇指弯曲关节电机 |
-| `thumb_abd` | 拇指侧摆关节电机 |
-| `index` | 食指关节电机 |
-| `middle` | 中指关节电机 |
-| `ring` | 无名指关节电机 |
-| `pinky` | 小指关节电机 |
+| 属性             | 说明             |
+| ---------------- | ---------------- |
+| `thumb_flex`     | 拇指弯曲关节电机 |
+| `thumb_abd`      | 拇指侧摆关节电机 |
+| `index`          | 食指关节电机     |
+| `middle`         | 中指关节电机     |
+| `ring`           | 无名指关节电机   |
+| `pinky`          | 小指关节电机     |
 | `thumb_rotation` | 拇指旋转关节电机 |
 
 ## 读取温度
@@ -24,12 +24,15 @@ print(f"拇指温度：{data.temperatures.thumb_flex}°C")
 ```
 
 **参数**
+
 - `timeout_ms`: 超时时间（毫秒），默认 100
 
 **返回值**
+
 - `TemperatureData`: 包含 `temperatures` 和 `timestamp`
 
 **异常**
+
 - `TimeoutError`: 超时未响应
 
 ### 缓存读取
@@ -43,6 +46,7 @@ if data:
 ```
 
 **返回值**
+
 - `TemperatureData` 或 `None`（无缓存数据时）
 
 ## 流式读取
@@ -71,7 +75,7 @@ finally:
 ```python
 from linkerbot import O7
 
-with O7(side='left', interface_name='can0') as hand:
+with O7(side="left", interface_name="can0") as hand:
     data = hand.temperature.get_blocking(timeout_ms=500)
 
     # 按属性访问
@@ -93,7 +97,7 @@ with O7(side='left', interface_name='can0') as hand:
 from linkerbot import O7
 from linkerbot.hand.o7 import SensorSource, TemperatureEvent
 
-with O7(side='left', interface_name='can0') as hand:
+with O7(side="left", interface_name="can0") as hand:
     hand.start_polling(sources=[SensorSource.TEMPERATURE], interval_ms=100)
 
     try:

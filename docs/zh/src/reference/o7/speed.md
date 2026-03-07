@@ -16,13 +16,13 @@ hand.speed.set_speeds([50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
 
 # 使用 O7Speed 对象
 speed = O7Speed(
-    thumb_flex=30.0,      # 拇指弯曲
-    thumb_abd=30.0,       # 拇指侧摆
-    index=80.0,           # 食指
-    middle=80.0,          # 中指
-    ring=80.0,            # 无名指
-    pinky=80.0,           # 小指
-    thumb_rotation=50.0   # 拇指旋转
+    thumb_flex=30.0,  # 拇指弯曲
+    thumb_abd=30.0,  # 拇指侧摆
+    index=80.0,  # 食指
+    middle=80.0,  # 中指
+    ring=80.0,  # 无名指
+    pinky=80.0,  # 小指
+    thumb_rotation=50.0,  # 拇指旋转
 )
 hand.speed.set_speeds(speed)
 ```

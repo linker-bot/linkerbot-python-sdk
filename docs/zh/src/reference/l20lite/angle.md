@@ -16,16 +16,16 @@ hand.angle.set_angles([50.0, 30.0, 60.0, 60.0, 60.0, 60.0, 20.0, 20.0, 20.0, 20.
 
 # 使用 L20liteAngle 对象
 angles = L20liteAngle(
-    thumb_flex=50.0,   # 拇指弯曲
-    thumb_abd=30.0,    # 拇指侧摆
-    index_flex=60.0,   # 食指弯曲
+    thumb_flex=50.0,  # 拇指弯曲
+    thumb_abd=30.0,  # 拇指侧摆
+    index_flex=60.0,  # 食指弯曲
     middle_flex=60.0,  # 中指弯曲
-    ring_flex=60.0,    # 无名指弯曲
-    pinky_flex=60.0,   # 小指弯曲
-    index_abd=20.0,    # 食指侧摆
-    ring_abd=20.0,     # 无名指侧摆
-    pinky_abd=20.0,    # 小指侧摆
-    thumb_yaw=20.0,    # 拇指旋转
+    ring_flex=60.0,  # 无名指弯曲
+    pinky_flex=60.0,  # 小指弯曲
+    index_abd=20.0,  # 食指侧摆
+    ring_abd=20.0,  # 无名指侧摆
+    pinky_abd=20.0,  # 小指侧摆
+    thumb_yaw=20.0,  # 拇指旋转
 )
 hand.angle.set_angles(angles)
 ```

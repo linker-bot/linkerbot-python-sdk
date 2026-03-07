@@ -16,10 +16,12 @@ with L20lite(side="left", interface_name="can0") as hand:
 ### 数据结构
 
 **ForceSensorData** - 单个手指的传感器数据：
+
 - `values`: 形状 (12, 6) 的 NumPy 数组（uint8）
 - `timestamp`: Unix 时间戳
 
 **AllFingersData** - 全部 5 个手指的数据：
+
 - `thumb`, `index`, `middle`, `ring`, `pinky`: 各手指的 `ForceSensorData`
 
 ## 读取数据
@@ -31,15 +33,15 @@ from linkerbot.exceptions import TimeoutError
 
 try:
     data = hand.force_sensor.get_blocking(timeout_ms=1000)
-    print(data.thumb.values)   # 拇指数据
-    print(data.index.values)   # 食指数据
+    print(data.thumb.values)  # 拇指数据
+    print(data.index.values)  # 食指数据
 except TimeoutError:
     print("读取超时")
 ```
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `timeout_ms` | `float` | 1000 | 超时时间（毫秒），适用于整体操作 |
+| 参数         | 类型    | 默认值 | 说明                             |
+| ------------ | ------- | ------ | -------------------------------- |
+| `timeout_ms` | `float` | 1000   | 超时时间（毫秒），适用于整体操作 |
 
 **异常**: `TimeoutError`（超时）、`ValidationError`（参数无效）
 

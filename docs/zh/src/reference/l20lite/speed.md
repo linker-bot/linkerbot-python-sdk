@@ -16,16 +16,16 @@ hand.speed.set_speeds([50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.
 
 # 使用 L20liteSpeed 对象
 speeds = L20liteSpeed(
-    thumb_flex=30.0,   # 拇指弯曲
-    thumb_abd=30.0,    # 拇指侧摆
-    index_flex=80.0,   # 食指弯曲
+    thumb_flex=30.0,  # 拇指弯曲
+    thumb_abd=30.0,  # 拇指侧摆
+    index_flex=80.0,  # 食指弯曲
     middle_flex=80.0,  # 中指弯曲
-    ring_flex=80.0,    # 无名指弯曲
-    pinky_flex=80.0,   # 小指弯曲
-    index_abd=50.0,    # 食指侧摆
-    ring_abd=50.0,     # 无名指侧摆
-    pinky_abd=50.0,    # 小指侧摆
-    thumb_yaw=50.0,    # 拇指旋转
+    ring_flex=80.0,  # 无名指弯曲
+    pinky_flex=80.0,  # 小指弯曲
+    index_abd=50.0,  # 食指侧摆
+    ring_abd=50.0,  # 无名指侧摆
+    pinky_abd=50.0,  # 小指侧摆
+    thumb_yaw=50.0,  # 拇指旋转
 )
 hand.speed.set_speeds(speeds)
 ```

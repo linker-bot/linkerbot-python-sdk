@@ -4,18 +4,18 @@
 
 **温度属性**
 
-| 属性 | 说明 |
-|------|------|
-| `thumb_flex` | 拇指弯曲关节电机 |
-| `thumb_abd` | 拇指侧摆关节电机 |
-| `index_flex` | 食指弯曲关节电机 |
-| `middle_flex` | 中指弯曲关节电机 |
-| `ring_flex` | 无名指弯曲关节电机 |
-| `pinky_flex` | 小指弯曲关节电机 |
-| `index_abd` | 食指侧摆关节电机 |
-| `ring_abd` | 无名指侧摆关节电机 |
-| `pinky_abd` | 小指侧摆关节电机 |
-| `thumb_yaw` | 拇指旋转关节电机 |
+| 属性          | 说明               |
+| ------------- | ------------------ |
+| `thumb_flex`  | 拇指弯曲关节电机   |
+| `thumb_abd`   | 拇指侧摆关节电机   |
+| `index_flex`  | 食指弯曲关节电机   |
+| `middle_flex` | 中指弯曲关节电机   |
+| `ring_flex`   | 无名指弯曲关节电机 |
+| `pinky_flex`  | 小指弯曲关节电机   |
+| `index_abd`   | 食指侧摆关节电机   |
+| `ring_abd`    | 无名指侧摆关节电机 |
+| `pinky_abd`   | 小指侧摆关节电机   |
+| `thumb_yaw`   | 拇指旋转关节电机   |
 
 ## 读取温度
 
@@ -32,12 +32,15 @@ except TimeoutError:
 ```
 
 **参数**
+
 - `timeout_ms`: 超时时间（毫秒），默认 100
 
 **返回值**
+
 - `TemperatureData`: 包含 `temperatures`（L20liteTemperature）和 `timestamp`
 
 **异常**
+
 - `TimeoutError`: 超时未响应
 
 ### 缓存读取
@@ -51,6 +54,7 @@ if data:
 ```
 
 **返回值**
+
 - `TemperatureData` 或 `None`（无缓存数据时）
 
 ## 流式读取
@@ -79,7 +83,7 @@ finally:
 ```python
 from linkerbot import L20lite
 
-with L20lite(side='left', interface_name='can0') as hand:
+with L20lite(side="left", interface_name="can0") as hand:
     data = hand.temperature.get_blocking(timeout_ms=500)
 
     # 按属性访问
@@ -100,7 +104,7 @@ with L20lite(side='left', interface_name='can0') as hand:
 from linkerbot import L20lite
 from linkerbot.hand.l20lite import SensorSource, TemperatureEvent
 
-with L20lite(side='left', interface_name='can0') as hand:
+with L20lite(side="left", interface_name="can0") as hand:
     hand.start_polling(sources=[SensorSource.TEMPERATURE], interval_ms=100)
 
     try:

@@ -1,5 +1,6 @@
-"""Linkerhand Python SDK for robotic hand control via CAN bus."""
+"""Linkerhand Python SDK for dexterous hand and robotic arm control."""
 
+from .arm import A7, A7lite, ControlMode, Pose
 from .exceptions import (
     CANError,
     LinkerbotError,
@@ -20,4 +21,8 @@ __all__ = [
     "O6",
     "O7",
     "L25",
+    "A7",
+    "A7lite",
+    "Pose",
+    "ControlMode",
 ]

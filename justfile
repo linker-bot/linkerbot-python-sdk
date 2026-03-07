@@ -7,6 +7,7 @@ update:
 
 [group('lint')]
 lint:
+    autocorrect --lint .
     uv sync --all-groups
     uv run ruff check .
     uv run ruff format --check --diff .
@@ -14,6 +15,7 @@ lint:
 
 [group('lint')]
 fix-lint:
+    autocorrect --fix .
     uv run ruff check --fix --unsafe-fixes .
     uv run ruff format .
 

@@ -17,11 +17,11 @@ hand.angle.set_angles([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
 # 使用 O6Angle 对象
 angles = O6Angle(
     thumb_flex=50.0,  # 拇指屈曲
-    thumb_abd=30.0,   # 拇指侧摆
-    index=60.0,       # 食指
-    middle=60.0,      # 中指
-    ring=60.0,        # 无名指
-    pinky=60.0        # 小指
+    thumb_abd=30.0,  # 拇指侧摆
+    index=60.0,  # 食指
+    middle=60.0,  # 中指
+    ring=60.0,  # 无名指
+    pinky=60.0,  # 小指
 )
 hand.angle.set_angles(angles)
 ```

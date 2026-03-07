@@ -40,14 +40,7 @@ from linkerbot.hand.l6 import L6Angle
 
 with L6(side="left", interface_name="can0") as hand:
     # 使用数据类（推荐，有类型提示）
-    angle = L6Angle(
-        thumb_flex=50,
-        thumb_abd=30,
-        index=60,
-        middle=60,
-        ring=60,
-        pinky=60
-    )
+    angle = L6Angle(thumb_flex=50, thumb_abd=30, index=60, middle=60, ring=60, pinky=60)
     hand.angle.set_angles(angle)
 
     # 或使用列表（简洁）
@@ -56,14 +49,14 @@ with L6(side="left", interface_name="can0") as hand:
 
 数据类属性：
 
-| 属性 | 说明 |
-|------|------|
+| 属性         | 说明     |
+| ------------ | -------- |
 | `thumb_flex` | 拇指弯曲 |
-| `thumb_abd` | 拇指侧摆 |
-| `index` | 食指 |
-| `middle` | 中指 |
-| `ring` | 无名指 |
-| `pinky` | 小指 |
+| `thumb_abd`  | 拇指侧摆 |
+| `index`      | 食指     |
+| `middle`     | 中指     |
+| `ring`       | 无名指   |
+| `pinky`      | 小指     |
 
 ## 数据读取模式
 
@@ -111,7 +104,7 @@ hand.stop_stream()
 
 ```python
 snap = hand.get_snapshot()
-print(snap.angle)        # AngleData | None
+print(snap.angle)  # AngleData | None
 print(snap.temperature)  # TemperatureData | None
 ```
 
@@ -152,21 +145,21 @@ with L6(side="left", interface_name="can0") as hand:
         print(f"参数错误：{e}")
 ```
 
-| 异常 | 说明 |
-|------|------|
-| `TimeoutError` | 通信超时 |
-| `ValidationError` | 参数验证失败 |
-| `StateError` | 状态错误（如接口已关闭） |
+| 异常              | 说明                     |
+| ----------------- | ------------------------ |
+| `TimeoutError`    | 通信超时                 |
+| `ValidationError` | 参数验证失败             |
+| `StateError`      | 状态错误（如接口已关闭） |
 
 ## 关节索引
 
 所有 6 关节模块使用相同的索引顺序：
 
-| 索引 | 名称 | 标识 |
-|------|------|------|
-| 0 | 拇指弯曲 | `thumb_flex` |
-| 1 | 拇指侧摆 | `thumb_abd` |
-| 2 | 食指 | `index` |
-| 3 | 中指 | `middle` |
-| 4 | 无名指 | `ring` |
-| 5 | 小指 | `pinky` |
+| 索引 | 名称     | 标识         |
+| ---- | -------- | ------------ |
+| 0    | 拇指弯曲 | `thumb_flex` |
+| 1    | 拇指侧摆 | `thumb_abd`  |
+| 2    | 食指     | `index`      |
+| 3    | 中指     | `middle`     |
+| 4    | 无名指   | `ring`       |
+| 5    | 小指     | `pinky`      |

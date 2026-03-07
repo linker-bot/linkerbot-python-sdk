@@ -10,14 +10,14 @@ O6 灵巧手的故障检测功能。
 
 ## 故障码表
 
-| 故障码 | 值 | 说明 |
-|--------|----|----|
-| `NONE` | 0 | 无故障 |
-| `VOLTAGE_ABNORMAL` | 1 | 过压/欠压 |
-| `ENCODER_ABNORMAL` | 2 | 磁编码器异常 |
-| `OVERTEMPERATURE` | 4 | 温度过热 |
-| `OVERCURRENT` | 8 | 电流过流 |
-| `OVERLOAD` | 32 | 负载过载 |
+| 故障码             | 值 | 说明         |
+| ------------------ | -- | ------------ |
+| `NONE`             | 0  | 无故障       |
+| `VOLTAGE_ABNORMAL` | 1  | 过压/欠压    |
+| `ENCODER_ABNORMAL` | 2  | 磁编码器异常 |
+| `OVERTEMPERATURE`  | 4  | 温度过热     |
+| `OVERCURRENT`      | 8  | 电流过流     |
+| `OVERLOAD`         | 32 | 负载过载     |
 
 ## 读取故障
 
@@ -28,13 +28,16 @@ data = hand.fault.get_blocking(timeout_ms=500)
 ```
 
 **参数**：
+
 - `timeout_ms`：超时时间（毫秒），默认 100
 
 **返回值**：`FaultData` 对象，包含：
+
 - `faults`：`O6Fault` 故障数据
 - `timestamp`：时间戳
 
 **异常**：
+
 - `TimeoutError`：超时未收到响应
 
 ### 缓存读取
@@ -70,14 +73,14 @@ hand.stop_stream()
 
 ### O6Fault 属性
 
-| 属性 | 说明 |
-|------|------|
+| 属性         | 说明     |
+| ------------ | -------- |
 | `thumb_flex` | 拇指弯曲 |
-| `thumb_abd` | 拇指侧摆 |
-| `index` | 食指 |
-| `middle` | 中指 |
-| `ring` | 无名指 |
-| `pinky` | 小指 |
+| `thumb_abd`  | 拇指侧摆 |
+| `index`      | 食指     |
+| `middle`     | 中指     |
+| `ring`       | 无名指   |
+| `pinky`      | 小指     |
 
 ### O6Fault 方法
 

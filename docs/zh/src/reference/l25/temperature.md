@@ -4,24 +4,24 @@
 
 **温度属性**
 
-| 属性 | 说明 |
-|------|------|
-| `thumb_abd` | 拇指侧摆关节电机 |
-| `thumb_yaw` | 拇指旋转关节电机 |
-| `thumb_root1` | 拇指根部关节电机 |
-| `thumb_tip` | 拇指指尖关节电机 |
-| `index_abd` | 食指侧摆关节电机 |
-| `index_root1` | 食指根部关节电机 |
-| `index_tip` | 食指指尖关节电机 |
-| `middle_abd` | 中指侧摆关节电机 |
-| `middle_root1` | 中指根部关节电机 |
-| `middle_tip` | 中指指尖关节电机 |
-| `ring_abd` | 无名指侧摆关节电机 |
-| `ring_root1` | 无名指根部关节电机 |
-| `ring_tip` | 无名指指尖关节电机 |
-| `pinky_abd` | 小指侧摆关节电机 |
-| `pinky_root1` | 小指根部关节电机 |
-| `pinky_tip` | 小指指尖关节电机 |
+| 属性           | 说明               |
+| -------------- | ------------------ |
+| `thumb_abd`    | 拇指侧摆关节电机   |
+| `thumb_yaw`    | 拇指旋转关节电机   |
+| `thumb_root1`  | 拇指根部关节电机   |
+| `thumb_tip`    | 拇指指尖关节电机   |
+| `index_abd`    | 食指侧摆关节电机   |
+| `index_root1`  | 食指根部关节电机   |
+| `index_tip`    | 食指指尖关节电机   |
+| `middle_abd`   | 中指侧摆关节电机   |
+| `middle_root1` | 中指根部关节电机   |
+| `middle_tip`   | 中指指尖关节电机   |
+| `ring_abd`     | 无名指侧摆关节电机 |
+| `ring_root1`   | 无名指根部关节电机 |
+| `ring_tip`     | 无名指指尖关节电机 |
+| `pinky_abd`    | 小指侧摆关节电机   |
+| `pinky_root1`  | 小指根部关节电机   |
+| `pinky_tip`    | 小指指尖关节电机   |
 
 ## 读取温度
 
@@ -38,12 +38,15 @@ except TimeoutError:
 ```
 
 **参数**
+
 - `timeout_ms`: 超时时间（毫秒），默认 100
 
 **返回值**
+
 - `TemperatureData`: 包含 `temperatures`（L25Temperature）和 `timestamp`
 
 **异常**
+
 - `TimeoutError`: 超时未响应
 
 ### 缓存读取
@@ -57,6 +60,7 @@ if data:
 ```
 
 **返回值**
+
 - `TemperatureData` 或 `None`（无缓存数据时）
 
 ## 流式读取
@@ -85,7 +89,7 @@ finally:
 ```python
 from linkerbot import L25
 
-with L25(side='left', interface_name='can0') as hand:
+with L25(side="left", interface_name="can0") as hand:
     data = hand.temperature.get_blocking(timeout_ms=500)
 
     # 按属性访问
@@ -106,7 +110,7 @@ with L25(side='left', interface_name='can0') as hand:
 from linkerbot import L25
 from linkerbot.hand.l25 import SensorSource, TemperatureEvent
 
-with L25(side='left', interface_name='can0') as hand:
+with L25(side="left", interface_name="can0") as hand:
     hand.start_polling(sources=[SensorSource.TEMPERATURE], interval_ms=100)
 
     try:

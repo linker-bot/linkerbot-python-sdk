@@ -16,22 +16,22 @@ hand.torque.set_torques([50.0] * 16)
 
 # 使用 L25Torque 对象
 torques = L25Torque(
-    thumb_abd=50.0,     # 拇指侧摆
-    thumb_yaw=30.0,    # 拇指旋转
-    thumb_root1=60.0,   # 拇指根部
-    thumb_tip=40.0,     # 拇指指尖
-    index_abd=50.0,     # 食指侧摆
-    index_root1=60.0,   # 食指根部
-    index_tip=40.0,     # 食指指尖
-    middle_abd=50.0,    # 中指侧摆
+    thumb_abd=50.0,  # 拇指侧摆
+    thumb_yaw=30.0,  # 拇指旋转
+    thumb_root1=60.0,  # 拇指根部
+    thumb_tip=40.0,  # 拇指指尖
+    index_abd=50.0,  # 食指侧摆
+    index_root1=60.0,  # 食指根部
+    index_tip=40.0,  # 食指指尖
+    middle_abd=50.0,  # 中指侧摆
     middle_root1=60.0,  # 中指根部
-    middle_tip=40.0,    # 中指指尖
-    ring_abd=50.0,      # 无名指侧摆
-    ring_root1=60.0,    # 无名指根部
-    ring_tip=40.0,      # 无名指指尖
-    pinky_abd=50.0,    # 小指侧摆
+    middle_tip=40.0,  # 中指指尖
+    ring_abd=50.0,  # 无名指侧摆
+    ring_root1=60.0,  # 无名指根部
+    ring_tip=40.0,  # 无名指指尖
+    pinky_abd=50.0,  # 小指侧摆
     pinky_root1=60.0,  # 小指根部
-    pinky_tip=40.0,    # 小指指尖
+    pinky_tip=40.0,  # 小指指尖
 )
 hand.torque.set_torques(torques)
 ```
@@ -93,11 +93,24 @@ with L25(side="left", interface_name="can0") as hand:
     print(f"当前扭矩：{data.torques.to_list()}")
 
     # 设置不同手指的扭矩
-    hand.torque.set_torques([
-        80.0, 80.0, 80.0, 80.0,   # 拇指
-        60.0, 60.0, 60.0,          # 食指
-        60.0, 60.0, 60.0,          # 中指
-        60.0, 60.0, 60.0,          # 无名指
-        60.0, 60.0, 60.0,          # 小指
-    ])
+    hand.torque.set_torques(
+        [
+            80.0,
+            80.0,
+            80.0,
+            80.0,  # 拇指
+            60.0,
+            60.0,
+            60.0,  # 食指
+            60.0,
+            60.0,
+            60.0,  # 中指
+            60.0,
+            60.0,
+            60.0,  # 无名指
+            60.0,
+            60.0,
+            60.0,  # 小指
+        ]
+    )
 ```
