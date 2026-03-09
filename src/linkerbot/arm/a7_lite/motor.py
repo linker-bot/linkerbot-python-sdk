@@ -4,7 +4,7 @@ from enum import Enum
 
 import can
 
-from linkerbot.arm import ControlMode
+from linkerbot.arm.common import ControlMode
 from linkerbot.arm.common.model import (
     AccelerationState,
     AngleState,

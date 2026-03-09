@@ -7,7 +7,6 @@ from typing import Literal
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-from linkerbot.arm import ControlMode, Pose, State
 from linkerbot.arm.a7_lite.consts import (
     MAX_ACCELERATION,
     MAX_VELOCITY,
@@ -22,6 +21,7 @@ from linkerbot.arm.a7_lite.consts import (
     MOVE_L_MAX_MAX_ANGULAR_VELOCITY,
     MOVE_L_MAX_MAX_VELOCITY,
 )
+from linkerbot.arm.common import ControlMode, Pose, State
 from linkerbot.arm.kinetix import ArmKinetix
 from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import StateError, ValidationError

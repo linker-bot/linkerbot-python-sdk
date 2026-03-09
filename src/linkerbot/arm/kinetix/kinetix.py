@@ -11,7 +11,7 @@ from scipy.optimize import least_squares, minimize
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 
-from linkerbot.arm import Pose, WayPoint
+from linkerbot.arm.common import Pose, WayPoint
 
 
 class IKResult(BaseModel):

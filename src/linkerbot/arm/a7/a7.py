@@ -8,7 +8,6 @@ from typing import Literal
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-from linkerbot.arm import ControlMode, Pose, State
 from linkerbot.arm.a7.consts import (
     DEFAULT_POLL_INTERVALS,
     MAX_ACCELERATION,
@@ -25,6 +24,7 @@ from linkerbot.arm.a7.consts import (
     MOVE_L_MAX_MAX_VELOCITY,
     NUM_JOINTS,
 )
+from linkerbot.arm.common import ControlMode, Pose, State
 from linkerbot.arm.kinetix import ArmKinetix
 from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import StateError, ValidationError
