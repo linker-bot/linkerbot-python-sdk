@@ -249,7 +249,7 @@ class ArmKinetix:
             "zyx", [pose.rz, pose.ry, pose.rx], degrees=False
         ).as_matrix()
 
-        ORIENT_WEIGHT = 0.1  # down-weight orientation vs position
+        ORIENT_WEIGHT = 1.0  # down-weight orientation vs position
 
         def residual(q: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
             pos, rot = self._forward_kinematics(q, data)
@@ -282,7 +282,7 @@ class ArmKinetix:
             J = jac(q)
             return J.T @ r  # ∇(0.5‖r‖²) = Jᵀ r
 
-        _ERR_TOL: float = 1e-5
+        _ERR_TOL: float = 1e-4
         _COST_TOL: float = 0.5 * _ERR_TOL**2
         _OPT_TOL: float = 1e-15
 
@@ -318,7 +318,7 @@ class ArmKinetix:
                 ftol=_OPT_TOL,
                 xtol=_OPT_TOL,
                 gtol=_OPT_TOL,
-                max_nfev=1000,
+                max_nfev=100,
             )
             cost_dogbox = 0.5 * float(res_dogbox.fun @ res_dogbox.fun)
             if cost_dogbox < _COST_TOL:
@@ -337,7 +337,7 @@ class ArmKinetix:
             options={
                 "ftol": _OPT_TOL,
                 "eps": _OPT_TOL,
-                "maxiter": 1000,
+                "maxiter": 100,
                 "disp": False,
             },
         )
@@ -359,9 +359,9 @@ class ArmKinetix:
         lo: npt.NDArray[np.float64],
         hi: npt.NDArray[np.float64],
         *,
-        orient_weight: float = 0.1,
-        max_iter: int = 1000,
-        err_tol: float = 1e-5,
+        orient_weight: float = 1.0,
+        max_iter: int = 100,
+        err_tol: float = 1e-4,
         damp: float = 1e-6,
         null_space_gain: float = 0.5,
     ) -> npt.NDArray[np.float64] | None:
@@ -611,7 +611,7 @@ def _compute_joint_limit_gradient(
     q: npt.NDArray[np.float64],
     lower: npt.NDArray[np.float64],
     upper: npt.NDArray[np.float64],
-    margin: float = 0.1,
+    margin: float = 0.05,
 ) -> npt.NDArray[np.float64]:
     """Compute a gradient that pushes joints away from their limits.
 
