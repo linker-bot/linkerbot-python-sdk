@@ -33,6 +33,11 @@ from .temperature import TemperatureManager
 from .torque import TorqueManager
 from .version import VersionManager
 
+_DEFAULT_POLL_INTERVALS: dict[SensorSource, float] = {
+    SensorSource.ANGLE: 1 / 60,
+    SensorSource.FORCE_SENSOR: 1 / 30,
+}
+
 
 class L20lite:
     """Main interface for L20lite robotic hand control.
@@ -50,7 +55,7 @@ class L20lite:
         hand.angle.set_angles([50, 30, 60, 60, 60, 60, 20, 20, 20, 20])
 
         # Start polling sensors
-        hand.start_polling(sources=[SensorSource.ANGLE, SensorSource.TEMPERATURE])
+        hand.start_polling({SensorSource.ANGLE: 0.05, SensorSource.TEMPERATURE: 1.0})
 
         # Read cached data
         snap = hand.get_snapshot()
@@ -141,7 +146,6 @@ class L20lite:
         # Polling
         self._stop_polling = threading.Event()
         self._stop_polling.set()
-        self._polling_interval_ms: float = 100
         self._polling_threads: dict[str, threading.Thread] = {}
 
         self._polling_senders: dict[str, Callable[[], None]] = {
@@ -162,6 +166,9 @@ class L20lite:
         self.force_sensor._set_event_sink(
             lambda d: self._push_event(ForceSensorEvent(data=d))
         )
+
+        # Auto-start default polling
+        self.start_polling()
 
     def __enter__(self) -> "L20lite":
         """Enter the context manager.
@@ -235,8 +242,7 @@ class L20lite:
 
     def start_polling(
         self,
-        sources: list[SensorSource] | None = None,
-        interval_ms: float = 100,
+        intervals: dict[SensorSource, float] = _DEFAULT_POLL_INTERVALS,
     ) -> None:
         """Start background polling for sensor data.
 
@@ -247,29 +253,25 @@ class L20lite:
         Calling start_polling() again automatically stops the previous polling.
 
         Args:
-            sources: List of sensor sources to poll. None means all sensors.
-            interval_ms: Polling interval in milliseconds (default: 100).
+            intervals: Per-sensor polling intervals in seconds.
+                Defaults to all sensors at model-specific intervals.
 
         Raises:
-            ValidationError: If interval_ms is not positive or sources contain invalid values.
+            ValidationError: If any interval is not positive.
         """
         self._ensure_open()
-        if interval_ms <= 0:
-            raise ValidationError("interval_ms must be positive")
         if not self._stop_polling.is_set():
             self.stop_polling()
-        if sources is None:
-            sources = list(SensorSource)
-        else:
-            for s in sources:
-                if s not in SensorSource:
-                    raise ValidationError(f"Invalid sensor source: {s!r}")
+        for source, interval in intervals.items():
+            if interval <= 0:
+                raise ValidationError(
+                    f"Interval for {source.value} must be positive, got {interval}"
+                )
         self._stop_polling.clear()
-        self._polling_interval_ms = interval_ms
-        for source in sources:
+        for source, interval in intervals.items():
             t = threading.Thread(
                 target=self._polling_loop,
-                args=(source.value,),
+                args=(source.value, interval),
                 daemon=True,
                 name=f"L20lite-Polling-{source.value}",
             )
@@ -332,11 +334,11 @@ class L20lite:
 
     # ===== Internal =====
 
-    def _polling_loop(self, source_name: str) -> None:
+    def _polling_loop(self, source_name: str, interval: float) -> None:
         sender = self._polling_senders[source_name]
         while not self._stop_polling.is_set():
             sender()
-            self._stop_polling.wait(self._polling_interval_ms / 1000.0)
+            self._stop_polling.wait(interval)
 
     def _push_event(self, event: SensorEvent) -> None:
         q = self._unified_queue

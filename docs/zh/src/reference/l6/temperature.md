@@ -57,7 +57,7 @@ if data:
 ```python
 from linkerbot.hand.l6 import SensorSource, TemperatureEvent
 
-hand.start_polling(sources=[SensorSource.TEMPERATURE], interval_ms=100)
+hand.start_polling({SensorSource.TEMPERATURE: 0.1})
 
 for event in hand.stream():
     match event:
@@ -97,7 +97,7 @@ from linkerbot import L6
 from linkerbot.hand.l6 import SensorSource, TemperatureEvent
 
 with L6(side="left", interface_name="can0") as hand:
-    hand.start_polling(sources=[SensorSource.TEMPERATURE], interval_ms=100)
+    hand.start_polling({SensorSource.TEMPERATURE: 0.1})
 
     try:
         for event in hand.stream():

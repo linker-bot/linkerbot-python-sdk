@@ -76,7 +76,7 @@ hand.fault.clear_faults()
 ```python
 from linkerbot.hand.l25 import SensorSource, FaultEvent
 
-hand.start_polling(sources=[SensorSource.FAULT], interval_ms=200)
+hand.start_polling({SensorSource.FAULT: 0.2})
 
 try:
     for event in hand.stream():
@@ -168,7 +168,7 @@ from linkerbot import L25
 from linkerbot.hand.l25 import SensorSource, FaultEvent
 
 with L25(side="left", interface_name="can0") as hand:
-    hand.start_polling(sources=[SensorSource.FAULT], interval_ms=200)
+    hand.start_polling({SensorSource.FAULT: 0.2})
 
     try:
         for event in hand.stream():

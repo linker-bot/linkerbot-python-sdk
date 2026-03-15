@@ -59,17 +59,16 @@ L25 灵巧手拥有 16 个自由度，分布在 5 根手指上。
 
 ## 统一流式读取
 
-L25 提供统一的事件流接口，通过 `hand.stream()` 和 `hand.start_polling()` 获取所有传感器数据。
+L25 提供统一的事件流接口，通过 `hand.stream()` 和 `hand.start_polling()` 获取所有传感器数据。初始化时会自动以默认间隔启动轮询（角度 60 Hz、力传感器 30 Hz），无需手动调用 `start_polling()`。
 
 ```python
 from linkerbot import L25
 from linkerbot.hand.l25 import SensorSource, AngleEvent, TemperatureEvent
 
 with L25(side="left", interface_name="can0") as hand:
-    hand.start_polling(
-        sources=[SensorSource.ANGLE, SensorSource.TEMPERATURE],
-        interval_ms=100,
-    )
+    # 可同时指定多个传感器及各自的轮询间隔（秒）
+    # 再次调用 start_polling() 会覆盖之前的设置
+    hand.start_polling({SensorSource.ANGLE: 0.05, SensorSource.TEMPERATURE: 1.0})
 
     for event in hand.stream():
         match event:
@@ -84,21 +83,20 @@ with L25(side="left", interface_name="can0") as hand:
 
 **start_polling 参数**
 
-| 参数          | 类型                           | 默认值 | 说明                                |
-| ------------- | ------------------------------ | ------ | ----------------------------------- |
-| `sources`     | `list[SensorSource]` \| `None` | `None` | 要轮询的传感器列表，`None` 表示全部 |
-| `interval_ms` | `float`                        | `100`  | 轮询间隔（毫秒）                    |
+| 参数        | 类型                              | 默认值 | 说明                                                  |
+| ----------- | --------------------------------- | ------ | ----------------------------------------------------- |
+| `intervals` | `dict[SensorSource, float]` | 全部默认值 | 每个传感器的轮询间隔（秒） |
 
-**SensorSource 可选值**
+**SensorSource 可选值及默认频率**
 
-| 值                          | 说明     |
-| --------------------------- | -------- |
-| `SensorSource.ANGLE`        | 角度     |
-| `SensorSource.SPEED`        | 速度     |
-| `SensorSource.TORQUE`       | 扭矩     |
-| `SensorSource.TEMPERATURE`  | 温度     |
-| `SensorSource.FAULT`        | 故障     |
-| `SensorSource.FORCE_SENSOR` | 力传感器 |
+| 值                          | 说明     | 默认频率   |
+| --------------------------- | -------- | ---------- |
+| `SensorSource.ANGLE`        | 角度     | 60 Hz      |
+| `SensorSource.SPEED`        | 速度     | 不默认轮询 |
+| `SensorSource.TORQUE`       | 扭矩     | 不默认轮询 |
+| `SensorSource.TEMPERATURE`  | 温度     | 不默认轮询 |
+| `SensorSource.FAULT`        | 故障     | 不默认轮询 |
+| `SensorSource.FORCE_SENSOR` | 力传感器 | 30 Hz      |
 
 ## 快照
 

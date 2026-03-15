@@ -56,13 +56,15 @@ with L6(side="left", interface_name="can0") as hand:
 
 ## 流式读取
 
-通过统一事件流持续接收数据：
+通过统一事件流持续接收数据。初始化时会自动以默认间隔启动轮询（角度 60 Hz、力传感器 30 Hz），也可手动调用 `start_polling()` 覆盖：
 
 ```python
 from linkerbot.hand.l6 import SensorSource, AngleEvent
 
 with L6(side="left", interface_name="can0") as hand:
-    hand.start_polling(sources=[SensorSource.ANGLE], interval_ms=100)
+    # 初始化已自动启动默认轮询（角度 + 力传感器）
+    # 如需自定义，可再次调用 start_polling() 覆盖
+    hand.start_polling({SensorSource.ANGLE: 0.1})
 
     for event in hand.stream():
         match event:

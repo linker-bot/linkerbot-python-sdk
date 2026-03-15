@@ -55,7 +55,7 @@ data = hand.fault.get_snapshot()
 ```python
 from linkerbot.hand.o6 import SensorSource, FaultEvent
 
-hand.start_polling(sources=[SensorSource.FAULT], interval_ms=200)
+hand.start_polling({SensorSource.FAULT: 0.2})
 
 for event in hand.stream():
     match event:
@@ -133,7 +133,7 @@ from linkerbot import O6
 from linkerbot.hand.o6 import SensorSource, FaultEvent
 
 with O6(side="left", interface_name="can0") as hand:
-    hand.start_polling(sources=[SensorSource.FAULT], interval_ms=200)
+    hand.start_polling({SensorSource.FAULT: 0.2})
 
     try:
         for event in hand.stream():

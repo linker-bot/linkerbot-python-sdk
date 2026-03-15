@@ -58,7 +58,7 @@ if data:
 ```python
 from linkerbot.hand.o6 import SensorSource, AccelerationEvent
 
-hand.start_polling(sources=[SensorSource.ACCELERATION], interval_ms=100)
+hand.start_polling({SensorSource.ACCELERATION: 0.1})
 
 for event in hand.stream():
     match event:

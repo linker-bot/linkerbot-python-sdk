@@ -51,17 +51,16 @@ with L20lite(side="left", interface_name="can0") as hand:
 
 ## 统一流式读取
 
-L20Lite 提供统一的事件流接口，通过 `hand.stream()` 和 `hand.start_polling()` 获取所有传感器数据。
+L20Lite 提供统一的事件流接口，通过 `hand.stream()` 和 `hand.start_polling()` 获取所有传感器数据。初始化时会自动以默认间隔启动轮询（角度 60 Hz、力传感器 30 Hz），无需手动调用 `start_polling()`。
 
 ```python
 from linkerbot import L20lite
 from linkerbot.hand.l20lite import SensorSource, AngleEvent, TemperatureEvent
 
 with L20lite(side="left", interface_name="can0") as hand:
-    hand.start_polling(
-        sources=[SensorSource.ANGLE, SensorSource.TEMPERATURE],
-        interval_ms=100,
-    )
+    # 可同时指定多个传感器及各自的轮询间隔（秒）
+    # 再次调用 start_polling() 会覆盖之前的设置
+    hand.start_polling({SensorSource.ANGLE: 0.05, SensorSource.TEMPERATURE: 1.0})
 
     for event in hand.stream():
         match event:
@@ -73,6 +72,16 @@ with L20lite(side="left", interface_name="can0") as hand:
     hand.stop_polling()
     hand.stop_stream()
 ```
+
+**SensorSource 可选值及默认频率**
+
+| 值                          | 说明     | 默认频率   |
+| --------------------------- | -------- | ---------- |
+| `SensorSource.ANGLE`        | 角度     | 60 Hz      |
+| `SensorSource.SPEED`        | 速度     | 不默认轮询 |
+| `SensorSource.TORQUE`       | 扭矩     | 不默认轮询 |
+| `SensorSource.TEMPERATURE`  | 温度     | 不默认轮询 |
+| `SensorSource.FORCE_SENSOR` | 力传感器 | 30 Hz      |
 
 ## 快照
 

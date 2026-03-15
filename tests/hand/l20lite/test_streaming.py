@@ -23,7 +23,7 @@ class TestStreaming:
         """Stream should receive at least one event."""
         events = []
         try:
-            l20lite_hand.start_polling([SensorSource.ANGLE])
+            l20lite_hand.start_polling({SensorSource.ANGLE: 0.1})
             queue = l20lite_hand.stream()
 
             def collect():
@@ -45,7 +45,7 @@ class TestStreaming:
         """When polling only ANGLE, all events should be AngleEvent."""
         events = []
         try:
-            l20lite_hand.start_polling([SensorSource.ANGLE])
+            l20lite_hand.start_polling({SensorSource.ANGLE: 0.1})
             queue = l20lite_hand.stream()
 
             def collect():
@@ -71,7 +71,9 @@ class TestStreaming:
         """When polling ANGLE and TORQUE, both event types should appear."""
         events = []
         try:
-            l20lite_hand.start_polling([SensorSource.ANGLE, SensorSource.TORQUE])
+            l20lite_hand.start_polling(
+                {SensorSource.ANGLE: 0.1, SensorSource.TORQUE: 0.1}
+            )
             queue = l20lite_hand.stream()
 
             def collect():
@@ -97,7 +99,7 @@ class TestStreaming:
         """AngleEvent data should contain 10 angles in [0, 100]."""
         events = []
         try:
-            l20lite_hand.start_polling([SensorSource.ANGLE])
+            l20lite_hand.start_polling({SensorSource.ANGLE: 0.1})
             queue = l20lite_hand.stream()
 
             def collect():
@@ -127,7 +129,7 @@ class TestStreaming:
     def test_stop_stream_clean(self, l20lite_hand: L20lite):
         """stop_stream should not raise errors."""
         try:
-            l20lite_hand.start_polling([SensorSource.ANGLE])
+            l20lite_hand.start_polling({SensorSource.ANGLE: 0.1})
             l20lite_hand.stream()
             l20lite_hand.stop_stream()
         finally:
@@ -139,10 +141,10 @@ class TestStreaming:
         events = []
         try:
             l20lite_hand.start_polling(
-                [
-                    SensorSource.ANGLE,
-                    SensorSource.TEMPERATURE,
-                ]
+                {
+                    SensorSource.ANGLE: 0.1,
+                    SensorSource.TEMPERATURE: 0.1,
+                }
             )
             queue = l20lite_hand.stream()
 

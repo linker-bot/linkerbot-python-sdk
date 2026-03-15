@@ -62,7 +62,7 @@ if data:
 ```python
 from linkerbot.hand.l6 import SensorSource, CurrentEvent
 
-hand.start_polling(sources=[SensorSource.CURRENT], interval_ms=50)
+hand.start_polling({SensorSource.CURRENT: 0.05})
 
 for event in hand.stream():
     match event:
@@ -82,7 +82,7 @@ from linkerbot import L6
 from linkerbot.hand.l6 import SensorSource, CurrentEvent
 
 with L6(side="left", interface_name="can0") as hand:
-    hand.start_polling(sources=[SensorSource.CURRENT], interval_ms=50)
+    hand.start_polling({SensorSource.CURRENT: 0.05})
 
     try:
         for event in hand.stream():
@@ -106,7 +106,7 @@ from linkerbot.hand.l6 import SensorSource, CurrentEvent
 with L6(side="left", interface_name="can0") as hand:
     records = []
     start = time.time()
-    hand.start_polling(sources=[SensorSource.CURRENT], interval_ms=100)
+    hand.start_polling({SensorSource.CURRENT: 0.1})
 
     try:
         for event in hand.stream():

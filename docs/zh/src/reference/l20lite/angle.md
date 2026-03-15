@@ -62,7 +62,7 @@ if data:
 ```python
 from linkerbot.hand.l20lite import SensorSource, AngleEvent
 
-hand.start_polling(sources=[SensorSource.ANGLE], interval_ms=100)
+hand.start_polling({SensorSource.ANGLE: 0.1})
 
 try:
     for event in hand.stream():

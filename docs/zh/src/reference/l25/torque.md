@@ -67,7 +67,7 @@ if data:
 ```python
 from linkerbot.hand.l25 import SensorSource, TorqueEvent
 
-hand.start_polling(sources=[SensorSource.TORQUE], interval_ms=100)
+hand.start_polling({SensorSource.TORQUE: 0.1})
 
 try:
     for event in hand.stream():

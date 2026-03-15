@@ -85,7 +85,7 @@ if thumb_data:
 ```python
 from linkerbot.hand.l25 import SensorSource, ForceSensorEvent
 
-hand.start_polling(sources=[SensorSource.FORCE_SENSOR], interval_ms=100)
+hand.start_polling({SensorSource.FORCE_SENSOR: 0.1})
 
 try:
     for event in hand.stream():
@@ -121,7 +121,7 @@ from linkerbot import L25
 from linkerbot.hand.l25 import SensorSource, ForceSensorEvent
 
 with L25(side="left", interface_name="can0") as hand:
-    hand.start_polling(sources=[SensorSource.FORCE_SENSOR], interval_ms=50)
+    hand.start_polling({SensorSource.FORCE_SENSOR: 0.05})
     start = time.time()
 
     try:

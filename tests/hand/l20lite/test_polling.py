@@ -16,7 +16,7 @@ class TestPolling:
     def test_start_polling_single_source(self, l20lite_hand: L20lite):
         """Polling a single source should populate its snapshot."""
         try:
-            l20lite_hand.start_polling([SensorSource.ANGLE])
+            l20lite_hand.start_polling({SensorSource.ANGLE: 0.1})
             time.sleep(0.5)
 
             data = l20lite_hand.angle.get_snapshot()
@@ -28,11 +28,11 @@ class TestPolling:
         """Polling multiple sources should populate all their snapshots."""
         try:
             l20lite_hand.start_polling(
-                [
-                    SensorSource.ANGLE,
-                    SensorSource.TORQUE,
-                    SensorSource.TEMPERATURE,
-                ]
+                {
+                    SensorSource.ANGLE: 0.1,
+                    SensorSource.TORQUE: 0.1,
+                    SensorSource.TEMPERATURE: 0.1,
+                }
             )
             time.sleep(1)
 
@@ -49,7 +49,7 @@ class TestPolling:
     def test_snapshot_updates_over_time(self, l20lite_hand: L20lite):
         """Snapshot timestamp should advance as polling continues."""
         try:
-            l20lite_hand.start_polling([SensorSource.ANGLE])
+            l20lite_hand.start_polling({SensorSource.ANGLE: 0.1})
             time.sleep(0.3)
 
             snap1 = l20lite_hand.get_snapshot()
@@ -69,7 +69,7 @@ class TestPolling:
     def test_stop_polling_clean(self, l20lite_hand: L20lite):
         """stop_polling should be idempotent and not raise errors."""
         try:
-            l20lite_hand.start_polling([SensorSource.ANGLE])
+            l20lite_hand.start_polling({SensorSource.ANGLE: 0.1})
             l20lite_hand.stop_polling()
             l20lite_hand.stop_polling()  # Second call should not raise
         finally:
@@ -94,10 +94,10 @@ class TestPolling:
         """get_snapshot should reflect data from polled sources."""
         try:
             l20lite_hand.start_polling(
-                [
-                    SensorSource.ANGLE,
-                    SensorSource.TEMPERATURE,
-                ]
+                {
+                    SensorSource.ANGLE: 0.1,
+                    SensorSource.TEMPERATURE: 0.1,
+                }
             )
             time.sleep(1)
 
