@@ -28,58 +28,16 @@ class TestFaultManagerBlocking:
                 f"Joint {i} should be a L25FaultCode"
             )
 
+        print(f"\n  Faults: {[str(f) for f in data.faults.to_list()]}")
+
     def test_no_fault_on_healthy_device(self, l25_hand: L25):
         """All 16 joints should report L25FaultCode.NONE on a healthy device."""
         data = l25_hand.fault.get_blocking(timeout_ms=100)
 
-        assert data.faults.thumb_abd == L25FaultCode.NONE, (
-            "thumb_abd should have no fault"
-        )
-        assert data.faults.thumb_yaw == L25FaultCode.NONE, (
-            "thumb_yaw should have no fault"
-        )
-        assert data.faults.thumb_root1 == L25FaultCode.NONE, (
-            "thumb_root1 should have no fault"
-        )
-        assert data.faults.thumb_tip == L25FaultCode.NONE, (
-            "thumb_tip should have no fault"
-        )
-        assert data.faults.index_abd == L25FaultCode.NONE, (
-            "index_abd should have no fault"
-        )
-        assert data.faults.index_root1 == L25FaultCode.NONE, (
-            "index_root1 should have no fault"
-        )
-        assert data.faults.index_tip == L25FaultCode.NONE, (
-            "index_tip should have no fault"
-        )
-        assert data.faults.middle_abd == L25FaultCode.NONE, (
-            "middle_abd should have no fault"
-        )
-        assert data.faults.middle_root1 == L25FaultCode.NONE, (
-            "middle_root1 should have no fault"
-        )
-        assert data.faults.middle_tip == L25FaultCode.NONE, (
-            "middle_tip should have no fault"
-        )
-        assert data.faults.ring_abd == L25FaultCode.NONE, (
-            "ring_abd should have no fault"
-        )
-        assert data.faults.ring_root1 == L25FaultCode.NONE, (
-            "ring_root1 should have no fault"
-        )
-        assert data.faults.ring_tip == L25FaultCode.NONE, (
-            "ring_tip should have no fault"
-        )
-        assert data.faults.pinky_abd == L25FaultCode.NONE, (
-            "pinky_abd should have no fault"
-        )
-        assert data.faults.pinky_root1 == L25FaultCode.NONE, (
-            "pinky_root1 should have no fault"
-        )
-        assert data.faults.pinky_tip == L25FaultCode.NONE, (
-            "pinky_tip should have no fault"
-        )
+        for i in range(16):
+            assert data.faults[i] == L25FaultCode.NONE, (
+                f"Joint {i} should have no fault, got {data.faults[i]}"
+            )
 
     def test_has_any_fault_returns_false_when_healthy(self, l25_hand: L25):
         """has_any_fault should return False on a healthy device."""

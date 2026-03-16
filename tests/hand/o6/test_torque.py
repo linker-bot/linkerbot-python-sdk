@@ -1,4 +1,4 @@
-"""Tests for O6 AccelerationManager with hardware."""
+"""Tests for O6 TorqueManager with hardware."""
 
 import threading
 import time
@@ -6,7 +6,7 @@ import time
 import pytest
 
 from linkerbot import O6
-from linkerbot.hand.o6 import AngleEvent, O6Acceleration, SensorSource
+from linkerbot.hand.o6 import AngleEvent, O6Torque, SensorSource
 from tests.conftest import InteractiveSession
 
 pytestmark = [pytest.mark.o6, pytest.mark.control]
@@ -34,7 +34,6 @@ def _move_and_time(
     deadline = start + timeout_sec
     timer = threading.Timer(timeout_sec, hand.stop_stream)
     timer.start()
-
     try:
         for event in queue:
             if not isinstance(event, AngleEvent):
@@ -50,104 +49,83 @@ def _move_and_time(
         timer.cancel()
         hand.stop_stream()
         hand.stop_polling()
-
     elapsed = time.perf_counter() - start
-    data = hand.angle.get_blocking(timeout_ms=500)
+    data = hand.angle.get_snapshot()
     print(
         f"\n  Motion time: {elapsed:.2f}s | "
-        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()]}"
+        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()] if data else 'N/A'}"
     )
     return elapsed, timed_out
 
 
-class TestAccelerationManagerBlocking:
-    """Test AccelerationManager blocking read."""
+class TestTorqueManagerBlocking:
+    """Test TorqueManager blocking read."""
 
     def test_get_blocking_returns_valid_data(self, o6_hand: O6):
-        """Blocking read should return 6 acceleration values, all in [0, 100]."""
-        data = o6_hand.acceleration.get_blocking(timeout_ms=500)
-
+        """Blocking read should return 6 torque values."""
+        data = o6_hand.torque.get_blocking(timeout_ms=500)
         assert data is not None
-        assert len(data.accelerations) == 6
-        for accel in data.accelerations.to_list():
-            assert 0 <= accel <= 100, f"Acceleration {accel} out of range [0, 100]"
+        assert len(data.torques) == 6
+        print(f"\n  Torques: {[f'{t:.1f}' for t in data.torques.to_list()]}")
 
     def test_get_blocking_has_timestamp(self, o6_hand: O6):
-        """Acceleration data timestamp should be positive and not in the future."""
-        data = o6_hand.acceleration.get_blocking(timeout_ms=500)
-
+        """Torque data should have a valid timestamp."""
+        data = o6_hand.torque.get_blocking(timeout_ms=500)
         assert data.timestamp > 0
         assert data.timestamp <= time.time()
 
+    def test_set_torques_with_list(self, o6_hand: O6):
+        """set_torques should accept list[float] without error."""
+        o6_hand.torque.set_torques([50.0] * 6)
 
-class TestAccelerationManagerSet:
-    """Test AccelerationManager set_accelerations method."""
-
-    def test_set_accelerations_with_list(self, o6_hand: O6):
-        """set_accelerations should accept a list of floats without error."""
-        o6_hand.acceleration.set_accelerations([50.0] * 6)
-
-    def test_set_accelerations_with_o6acceleration(self, o6_hand: O6):
-        """set_accelerations should accept an O6Acceleration instance without error."""
-        o6_hand.acceleration.set_accelerations(
-            O6Acceleration(
-                thumb_flex=50.0,
-                thumb_abd=50.0,
-                index=50.0,
-                middle=50.0,
-                ring=50.0,
-                pinky=50.0,
-            )
-        )
-
-    def test_set_different_accelerations(self, o6_hand: O6):
-        """set_accelerations should accept different per-motor values without error."""
-        o6_hand.acceleration.set_accelerations([20.0, 40.0, 60.0, 80.0, 100.0, 50.0])
+    def test_set_torques_with_o6_torque(self, o6_hand: O6):
+        """set_torques should accept O6Torque instance without error."""
+        o6_hand.torque.set_torques(O6Torque.from_list([50.0] * 6))
 
 
-class TestAccelerationManagerSnapshot:
-    """Test AccelerationManager snapshot (cache) mode."""
+class TestTorqueManagerSnapshot:
+    """Test TorqueManager snapshot mode."""
 
-    def test_snapshot_populated_after_blocking_read(self, o6_hand: O6):
-        """get_snapshot should return data after a blocking read."""
-        o6_hand.acceleration.get_blocking(timeout_ms=500)
-
-        data = o6_hand.acceleration.get_snapshot()
-
+    def test_snapshot_populated_after_read(self, o6_hand: O6):
+        """get_snapshot should return non-None after blocking read."""
+        o6_hand.torque.get_blocking(timeout_ms=500)
+        data = o6_hand.torque.get_snapshot()
         assert data is not None
-        assert len(data.accelerations) == 6
+        assert len(data.torques) == 6
 
 
 @pytest.mark.interactive
-class TestAccelerationInteractive:
-    """Interactive tests for verifying acceleration affects movement ramp-up."""
+class TestTorqueInteractive:
+    """Interactive tests for verifying torque affects grip strength."""
 
-    def test_acceleration_affects_movement(
-        self, o6_hand: O6, interactive_session: InteractiveSession
-    ):
-        """Verify that acceleration settings visibly affect finger movement ramp-up."""
+    def test_torque_levels(self, o6_hand: O6, interactive_session: InteractiveSession):
+        """Verify low/mid/high torque visibly affects grip strength."""
         session = interactive_session
         motion_results: list[tuple[str, float, bool]] = []
+
+        # Set speed and acceleration to max for consistent observation
+        o6_hand.speed.set_speeds([100.0] * 6)
+        o6_hand.acceleration.set_accelerations([100.0] * 6)
 
         def track(label: str, target: list[float]) -> None:
             elapsed, timed_out = _move_and_time(o6_hand, target)
             motion_results.append((label, elapsed, timed_out))
 
-        for level, accel_val in [("LOW", 10.0), ("MID", 30.0), ("HIGH", 100.0)]:
+        for level, torque_val in [("LOW", 10.0), ("MID", 50.0), ("HIGH", 100.0)]:
             session.step(
-                instruction=f"[{level} acceleration={accel_val}] Closing fingers",
-                action=lambda lbl=f"{level} close", av=accel_val: (
-                    o6_hand.acceleration.set_accelerations([av] * 6),
+                instruction=f"[{level} torque={torque_val}] Closing grip",
+                action=lambda lbl=f"{level} close", tv=torque_val: (
+                    o6_hand.torque.set_torques([tv] * 6),
                     track(lbl, CLOSED),
                 ),
                 expected=(
-                    f"Fingers close with {level} acceleration ramp-up "
-                    f"({'gradual start' if level == 'LOW' else 'moderate start' if level == 'MID' else 'sharp immediate start'})"
+                    f"Fingers close with {level} torque "
+                    f"(should feel {'weak' if level == 'LOW' else 'medium' if level == 'MID' else 'strong'})"
                 ),
             )
 
             session.step(
-                instruction=f"[{level} acceleration={accel_val}] Opening hand",
+                instruction=f"[{level} torque={torque_val}] Opening hand",
                 action=lambda lbl=f"{level} open": (track(lbl, OPEN),),
                 expected="Fingers fully open",
             )

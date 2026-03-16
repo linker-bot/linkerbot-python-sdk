@@ -66,6 +66,24 @@ class TestPolling:
         finally:
             l25_hand.stop_polling()
 
+    def test_snapshot_frozen_after_stop(self, l25_hand: L25):
+        """After stop_polling, snapshot should exist but not advance rapidly."""
+        try:
+            l25_hand.start_polling({SensorSource.ANGLE: 0.1})
+            time.sleep(0.5)
+        finally:
+            l25_hand.stop_polling()
+
+        snap = l25_hand.angle.get_snapshot()
+        assert snap is not None, "Snapshot should exist after polling stopped"
+        ts1 = snap.timestamp
+
+        time.sleep(0.3)
+
+        snap2 = l25_hand.angle.get_snapshot()
+        assert snap2 is not None
+        assert snap2.timestamp == ts1, "Snapshot should not update after stop_polling"
+
     def test_stop_polling_clean(self, l25_hand: L25):
         """stop_polling should be idempotent and not raise errors."""
         try:

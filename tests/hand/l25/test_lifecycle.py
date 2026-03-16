@@ -42,13 +42,7 @@ class TestLifecycle:
         hand.close()
         hand.close()
 
-    def test_operations_after_close_raise(self):
+    def test_operations_after_close_raise(self, closed_hand: L25):
         """Operations on a closed hand should raise an exception."""
-        interface = os.environ.get("CAN_INTERFACE", "can0")
-        side = cast(Literal["left", "right"], os.environ.get("L25_SIDE", "left"))
-
-        with L25(side=side, interface_name=interface) as hand:
-            pass
-
         with pytest.raises(Exception):
-            hand.angle.get_blocking()
+            closed_hand.angle.get_blocking()

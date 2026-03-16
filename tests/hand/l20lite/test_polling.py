@@ -34,7 +34,7 @@ class TestPolling:
                     SensorSource.TEMPERATURE: 0.1,
                 }
             )
-            time.sleep(1)
+            time.sleep(1.0)
 
             angle = l20lite_hand.angle.get_snapshot()
             torque = l20lite_hand.torque.get_snapshot()

@@ -22,46 +22,60 @@ class TestTemperatureManagerBlocking:
             assert 0 <= temp <= 100, (
                 f"Temperature {temp} C out of reasonable range (0-100)"
             )
+        print(f"\n  Temperatures: {[f'{t:.1f}' for t in data.temperatures.to_list()]}")
 
     def test_get_blocking_has_timestamp(self, l20lite_hand: L20lite):
         """Temperature data should have a valid timestamp."""
         data = l20lite_hand.temperature.get_blocking(timeout_ms=100)
 
-        assert data.timestamp > 0, "Timestamp should be positive"
-        assert data.timestamp <= time.time(), "Timestamp should not be in the future"
+        assert data.timestamp > 0
+        assert data.timestamp <= time.time()
 
     def test_temperature_field_access(self, l20lite_hand: L20lite):
         """Should be able to access temperature fields by name."""
         data = l20lite_hand.temperature.get_blocking(timeout_ms=100)
 
-        assert isinstance(data.temperatures.thumb_flex, float), (
-            "thumb_flex should be float"
+        for field in [
+            "thumb_flex",
+            "thumb_abd",
+            "index_flex",
+            "middle_flex",
+            "ring_flex",
+            "pinky_flex",
+            "index_abd",
+            "ring_abd",
+            "pinky_abd",
+            "thumb_yaw",
+        ]:
+            assert isinstance(getattr(data.temperatures, field), float), (
+                f"{field} should be float"
+            )
+
+
+class TestTemperatureAfterExercise:
+    """Test temperature change after exercising the hand."""
+
+    def test_temperature_changes_after_exercise(self, l20lite_hand: L20lite):
+        """After exercising the hand, temperature readings should update."""
+        baseline = l20lite_hand.temperature.get_blocking(timeout_ms=100)
+        print(
+            f"\n  Baseline temps: {[f'{t:.1f}' for t in baseline.temperatures.to_list()]}"
         )
-        assert isinstance(data.temperatures.thumb_abd, float), (
-            "thumb_abd should be float"
-        )
-        assert isinstance(data.temperatures.index_flex, float), (
-            "index_flex should be float"
-        )
-        assert isinstance(data.temperatures.middle_flex, float), (
-            "middle_flex should be float"
-        )
-        assert isinstance(data.temperatures.ring_flex, float), (
-            "ring_flex should be float"
-        )
-        assert isinstance(data.temperatures.pinky_flex, float), (
-            "pinky_flex should be float"
-        )
-        assert isinstance(data.temperatures.index_abd, float), (
-            "index_abd should be float"
-        )
-        assert isinstance(data.temperatures.ring_abd, float), "ring_abd should be float"
-        assert isinstance(data.temperatures.pinky_abd, float), (
-            "pinky_abd should be float"
-        )
-        assert isinstance(data.temperatures.thumb_yaw, float), (
-            "thumb_yaw should be float"
-        )
+
+        # Exercise: half grip 10 times
+        for i in range(10):
+            l20lite_hand.angle.set_angles([50.0] * 6 + [100.0] * 4)
+            time.sleep(1.5)
+            l20lite_hand.angle.set_angles([100.0] * 10)
+            time.sleep(1.5)
+            print(f"  Exercise cycle {i + 1}/10 complete")
+
+        after = l20lite_hand.temperature.get_blocking(timeout_ms=100)
+        print(f"  After exercise: {[f'{t:.1f}' for t in after.temperatures.to_list()]}")
+
+        snapshot = l20lite_hand.temperature.get_snapshot()
+        assert snapshot is not None, "Snapshot should be populated after blocking read"
+        assert snapshot.timestamp >= after.timestamp
 
 
 class TestTemperatureManagerSnapshot:
@@ -72,6 +86,5 @@ class TestTemperatureManagerSnapshot:
         l20lite_hand.temperature.get_blocking(timeout_ms=100)
 
         data = l20lite_hand.temperature.get_snapshot()
-
-        assert data is not None, "Snapshot should be populated after blocking read"
+        assert data is not None
         assert len(data.temperatures) == 10

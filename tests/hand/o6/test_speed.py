@@ -1,15 +1,63 @@
 """Tests for O6 SpeedManager with hardware."""
 
+import threading
 import time
 
 import pytest
 
 from linkerbot import O6
-from linkerbot.hand.o6 import O6Speed
+from linkerbot.hand.o6 import AngleEvent, O6Speed, SensorSource
 from tests.conftest import InteractiveSession
-from tests.hand.o6.conftest import move_and_wait
 
 pytestmark = [pytest.mark.o6, pytest.mark.control]
+
+TOLERANCE = 3.0
+MOTION_TIMEOUT_SEC = 10.0
+_POLLING_INTERVAL_SEC = 0.1
+
+OPEN = [100.0] * 6
+CLOSED = [0.0, 100.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def _move_and_time(
+    hand: O6,
+    target: list[float],
+    tolerance: float = TOLERANCE,
+    timeout_sec: float = MOTION_TIMEOUT_SEC,
+) -> tuple[float, bool]:
+    """Set target angles, stream until within tolerance, return (elapsed_seconds, timed_out)."""
+    timed_out = False
+    hand.start_polling({SensorSource.ANGLE: _POLLING_INTERVAL_SEC})
+    queue = hand.stream()
+    hand.angle.set_angles(target)
+    start = time.perf_counter()
+    deadline = start + timeout_sec
+    timer = threading.Timer(timeout_sec, hand.stop_stream)
+    timer.start()
+
+    try:
+        for event in queue:
+            if not isinstance(event, AngleEvent):
+                continue
+            angles = event.data.angles
+            if all(abs(angles[i] - target[i]) < tolerance for i in range(6)):
+                break
+            if time.perf_counter() >= deadline:
+                print(f"\n  [TIMEOUT] Did not reach target within {timeout_sec:.0f}s")
+                timed_out = True
+                break
+    finally:
+        timer.cancel()
+        hand.stop_stream()
+        hand.stop_polling()
+
+    elapsed = time.perf_counter() - start
+    data = hand.angle.get_blocking(timeout_ms=500)
+    print(
+        f"\n  Motion time: {elapsed:.2f}s | "
+        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()]}"
+    )
+    return elapsed, timed_out
 
 
 class TestSpeedManagerBlocking:
@@ -79,35 +127,42 @@ class TestSpeedInteractive:
     ):
         """Verify that speed settings visibly affect finger movement speed."""
         session = interactive_session
+        motion_results: list[tuple[str, float, bool]] = []
 
-        session.step(
-            instruction="Setting LOW speed [10]*6 then closing fingers",
-            action=lambda: (
-                o6_hand.speed.set_speeds([10.0] * 6),
-                move_and_wait(o6_hand, [0.0, 100.0, 0.0, 0.0, 0.0, 0.0], wait_sec=4.0),
-            ),
-            expected="Fingers move slowly",
-        )
+        def track(label: str, target: list[float]) -> None:
+            elapsed, timed_out = _move_and_time(o6_hand, target)
+            motion_results.append((label, elapsed, timed_out))
 
-        session.step(
-            instruction="Setting HIGH speed [100]*6 then opening fingers",
-            action=lambda: (
-                o6_hand.speed.set_speeds([100.0] * 6),
-                move_and_wait(o6_hand, [100.0] * 6, wait_sec=2.0),
-            ),
-            expected="Fingers move fast",
-        )
+        for level, speed_val in [("LOW", 10.0), ("MID", 30.0), ("HIGH", 100.0)]:
+            session.step(
+                instruction=f"[{level} speed={speed_val}] Closing fingers",
+                action=lambda lbl=f"{level} close", sv=speed_val: (
+                    o6_hand.speed.set_speeds([sv] * 6),
+                    track(lbl, CLOSED),
+                ),
+                expected=(
+                    f"Fingers close at {level} speed "
+                    f"({'slow' if level == 'LOW' else 'medium' if level == 'MID' else 'fast'})"
+                ),
+            )
 
-        session.step(
-            instruction="Setting HIGH speed [100]*6 then closing fingers",
-            action=lambda: (
-                o6_hand.speed.set_speeds([100.0] * 6),
-                move_and_wait(o6_hand, [0.0, 100.0, 0.0, 0.0, 0.0, 0.0], wait_sec=2.0),
-            ),
-            expected="Clearly faster than the first step",
-        )
+            session.step(
+                instruction=f"[{level} speed={speed_val}] Opening hand",
+                action=lambda lbl=f"{level} open": (track(lbl, OPEN),),
+                expected="Fingers fully open",
+            )
 
         session.run()
+
+        _move_and_time(o6_hand, OPEN)
+
+        print("\n" + "=" * 52)
+        print("  Motion Time Summary")
+        print("=" * 52)
+        for label, elapsed, timed_out in motion_results:
+            timeout_mark = "  [TIMEOUT]" if timed_out else ""
+            print(f"  {label:<12}: {elapsed:.2f}s{timeout_mark}")
+        print("=" * 52)
         session.save_report()
 
         if session.quit_early:

@@ -73,6 +73,8 @@ class O6Speed:
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
         for value in values:
+            if not isinstance(value, (float, int)):
+                raise ValueError(f"Speed value {value} must be float/int")
             if value < 0 or value > 100:
                 raise ValueError(f"Value {value} out of range [0, 100]")
         return cls(
@@ -356,6 +358,8 @@ class O6Acceleration:
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
         for value in values:
+            if not isinstance(value, (float, int)):
+                raise ValueError(f"Acceleration value {value} must be float/int")
             if value < 0 or value > 100:
                 raise ValueError(f"Value {value} out of range [0, 100]")
         return cls(

@@ -1,59 +1,83 @@
 """Tests for L25 ForceSensorManager with hardware."""
 
+import time
+
 import pytest
 
 from linkerbot import L25
+from linkerbot.hand.l25 import SensorSource
 from tests.conftest import InteractiveSession
 
 pytestmark = [pytest.mark.l25, pytest.mark.sensor]
 
 FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"]
+PRESSURE_THRESHOLD = 20  # mean value above this → pressed; tune to hardware
+
+# Hardware-verified open pose for baseline
+OPEN = [
+    100.0,
+    100.0,
+    100.0,
+    100.0,  # thumb
+    100.0,
+    100.0,
+    100.0,  # index
+    67.0,
+    100.0,
+    100.0,  # middle
+    33.0,
+    100.0,
+    100.0,  # ring
+    0.0,
+    100.0,
+    100.0,  # pinky
+]
 
 
-class TestForceSensorManagerBlocking:
-    """Test ForceSensorManager blocking mode."""
+class TestForceSensorBlocking:
+    """Test ForceSensorManager blocking reads against real hardware."""
 
-    def test_get_blocking_returns_all_fingers(self, l25_hand: L25):
-        """Blocking read should return AllFingersData with all 5 finger attributes."""
-        data = l25_hand.force_sensor.get_blocking(timeout_ms=2000)
+    def test_blocking_double_read_and_baseline(self, l25_hand: L25):
+        """Open pose, two reads 0.2s apart, verify shape and timestamps."""
+        # Move to open pose
+        l25_hand.angle.set_angles(OPEN)
+        time.sleep(2.0)
 
-        assert data is not None
-        assert hasattr(data, "thumb")
-        assert hasattr(data, "index")
-        assert hasattr(data, "middle")
-        assert hasattr(data, "ring")
-        assert hasattr(data, "pinky")
-
-    def test_each_finger_correct_shape(self, l25_hand: L25):
-        """Each finger's force sensor values should have shape (12, 6)."""
-        data = l25_hand.force_sensor.get_blocking(timeout_ms=2000)
+        # First read
+        data1 = l25_hand.force_sensor.get_blocking(timeout_ms=2000)
+        assert data1 is not None
 
         for name in FINGER_NAMES:
-            finger_data = getattr(data, name)
-            assert finger_data.values.shape == (12, 6), (
-                f"{name} expected shape (12, 6), got {finger_data.values.shape}"
+            finger = getattr(data1, name)
+            assert finger.values.shape == (12, 6), (
+                f"{name} expected shape (12, 6), got {finger.values.shape}"
             )
+            assert finger.timestamp > 0
 
-    def test_each_finger_has_timestamp(self, l25_hand: L25):
-        """Each finger's force sensor data should have a positive timestamp."""
-        data = l25_hand.force_sensor.get_blocking(timeout_ms=2000)
-
+        print("\n  --- No-load baseline (open pose) ---")
         for name in FINGER_NAMES:
-            finger_data = getattr(data, name)
-            assert finger_data.timestamp > 0, (
-                f"{name} timestamp should be positive, got {finger_data.timestamp}"
+            finger = getattr(data1, name)
+            print(
+                f"  {name}: mean={finger.values.mean():.2f}  values=\n{finger.values}"
             )
 
-    def test_single_finger_blocking(self, l25_hand: L25):
-        """Single finger blocking read should return ForceSensorData with shape (12, 6)."""
-        data = l25_hand.force_sensor.get_finger("thumb").get_blocking(timeout_ms=1000)
+        time.sleep(0.2)
 
-        assert data is not None
-        assert data.values.shape == (12, 6), (
-            f"Expected shape (12, 6), got {data.values.shape}"
-        )
+        # Second read
+        data2 = l25_hand.force_sensor.get_blocking(timeout_ms=2000)
+        assert data2 is not None
 
-    def test_all_five_fingers_accessible(self, l25_hand: L25):
+        # Timestamp must increase per finger
+        for name in FINGER_NAMES:
+            t1 = getattr(data1, name).timestamp
+            t2 = getattr(data2, name).timestamp
+            assert t2 > t1, (
+                f"{name} second timestamp ({t2:.4f}) should be > first ({t1:.4f})"
+            )
+
+        print("\n  Second read timestamps are later — OK")
+
+    def test_each_finger_accessible(self, l25_hand: L25):
         """Each finger should be accessible by name via get_finger()."""
         for name in FINGER_NAMES:
             data = l25_hand.force_sensor.get_finger(name).get_blocking(timeout_ms=1000)
@@ -62,16 +86,11 @@ class TestForceSensorManagerBlocking:
                 f"{name} expected shape (12, 6), got {data.values.shape}"
             )
 
-
-class TestForceSensorManagerSnapshot:
-    """Test ForceSensorManager snapshot mode."""
-
     def test_snapshot_populated_after_read(self, l25_hand: L25):
-        """After get_blocking(), get_snapshot() should return non-None with all 5 fingers."""
+        """After get_blocking(), get_snapshot() returns non-None with all 5 fingers."""
         l25_hand.force_sensor.get_blocking(timeout_ms=2000)
 
         data = l25_hand.force_sensor.get_snapshot()
-
         assert data is not None, "Snapshot should be populated after blocking read"
         for name in FINGER_NAMES:
             assert hasattr(data, name), f"Snapshot missing finger: {name}"
@@ -79,55 +98,27 @@ class TestForceSensorManagerSnapshot:
 
 @pytest.mark.interactive
 class TestForceSensorInteractive:
-    """Interactive tests for force sensor requiring human verification."""
+    """Interactive per-finger pressure test (thumb → pinky)."""
 
-    def test_thumb_pressure_detection(
+    def test_per_finger_pressure(
         self, l25_hand: L25, interactive_session: InteractiveSession
     ):
-        """Human verifies that thumb pressure is detected by force sensor."""
-        session = interactive_session
-
-        session.step(
-            instruction="Reading thumb force sensor baseline (no pressure applied)",
-            action=lambda: print(
-                f"\nBaseline thumb values:\n"
-                f"{l25_hand.force_sensor.get_finger('thumb').get_blocking(timeout_ms=1000).values}"
-            ),
-            expected="Baseline values are displayed (no pressure applied yet)",
-        ).step(
-            instruction="Press firmly on the thumb sensor pad, then press Enter",
-            action=lambda: print(
-                f"\nThumb values under pressure:\n"
-                f"{l25_hand.force_sensor.get_finger('thumb').get_blocking(timeout_ms=1000).values}"
-            ),
-            expected="Values should have visibly changed compared to baseline",
-        )
-
-        session.run()
-        session.save_report()
-
-        if session.quit_early:
-            pytest.exit("Tester quit early")
-
-        failures = session.failed_steps()
-        if failures:
-            msgs = [f"- {f.instruction}: {f.notes}" for f in failures]
-            pytest.fail(f"{len(failures)} step(s) failed:\n" + "\n".join(msgs))
-
-    def test_each_finger_pressure(
-        self, l25_hand: L25, interactive_session: InteractiveSession
-    ):
-        """Human verifies that each finger's force sensor detects pressure."""
+        """Per-finger pressure: thumb→pinky, one session.run(), user confirms all."""
         session = interactive_session
 
         for name in FINGER_NAMES:
+
+            def _read_and_print(n: str = name) -> None:
+                data = l25_hand.force_sensor.get_finger(n).get_blocking(timeout_ms=2000)
+                print(f"\n  [{n}] mean={data.values.mean():.2f}")
+                print(f"  {data.values}")
+
             session.step(
-                instruction=f"Press firmly on the {name} finger sensor pad, then press Enter",
-                action=lambda n=name: print(
-                    f"\n{n} values under pressure:\n"
-                    f"{l25_hand.force_sensor.get_finger(n).get_blocking(timeout_ms=1000).values}"
+                instruction=f"Press firmly on the {name} sensor pad, then press Enter",
+                action=_read_and_print,
+                expected=(
+                    f"{name} sensor values should show higher readings compared to baseline"
                 ),
-                expected=f"{name} sensor values should show change from pressure",
             )
 
         session.run()
@@ -140,3 +131,53 @@ class TestForceSensorInteractive:
         if failures:
             msgs = [f"- {f.instruction}: {f.notes}" for f in failures]
             pytest.fail(f"{len(failures)} step(s) failed:\n" + "\n".join(msgs))
+
+
+@pytest.mark.interactive
+class TestForceSensorStreaming:
+    """Streaming auto-detect: poll at 50ms, detect each finger by threshold."""
+
+    def test_streaming_all_fingers_detected(self, l25_hand: L25):
+        """Prompt user to release fingers, poll 50ms, auto-detect all 5, pass/fail."""
+        print("\n  [Streaming pressure detection]")
+        print("  Please RELEASE all fingers — do NOT press any sensor.")
+        input("  Press Enter when ready...")
+
+        detected: set[str] = set()
+        TIMEOUT_S = 60.0
+        deadline = time.monotonic() + TIMEOUT_S
+
+        try:
+            l25_hand.start_polling({SensorSource.FORCE_SENSOR: 0.05})
+
+            print(
+                "\n  Now press each finger sensor one by one "
+                "(thumb → index → middle → ring → pinky)."
+            )
+            print("  Detection is automatic — no Enter needed.\n")
+
+            while time.monotonic() < deadline:
+                time.sleep(0.05)  # match 50ms polling cadence
+                snapshot = l25_hand.force_sensor.get_snapshot()
+                if snapshot is None:
+                    continue
+
+                for name in FINGER_NAMES:
+                    if name in detected:
+                        continue
+                    finger_data = getattr(snapshot, name)
+                    mean_val = float(finger_data.values.mean())
+                    if mean_val > PRESSURE_THRESHOLD:
+                        detected.add(name)
+                        print(f"  ✓ {name} detected! mean={mean_val:.2f}")
+
+                if len(detected) == len(FINGER_NAMES):
+                    print("\n  All 5 fingers detected — test passed!")
+                    break
+            else:
+                missing = sorted(set(FINGER_NAMES) - detected)
+                pytest.fail(
+                    f"Timeout after {TIMEOUT_S}s. Fingers not detected: {missing}"
+                )
+        finally:
+            l25_hand.stop_polling()

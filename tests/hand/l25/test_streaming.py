@@ -69,24 +69,25 @@ class TestStreaming:
 
     def test_stream_multiple_event_types(self, l25_hand: L25):
         """When polling ANGLE and TORQUE, both event types should appear."""
-        events = []
+        events: list = []
         try:
             l25_hand.start_polling({SensorSource.ANGLE: 0.1, SensorSource.TORQUE: 0.1})
             queue = l25_hand.stream()
 
-            def collect():
+            def collect() -> None:
                 for event in queue:
                     events.append(event)
 
             t = threading.Thread(target=collect, daemon=True)
             t.start()
             time.sleep(2)
+
             l25_hand.stop_stream()
             t.join(timeout=2)
 
+            assert len(events) >= 1, "Should have received at least 1 event"
             has_angle = any(isinstance(e, AngleEvent) for e in events)
             has_torque = any(isinstance(e, TorqueEvent) for e in events)
-
             assert has_angle, "Should have received at least one AngleEvent"
             assert has_torque, "Should have received at least one TorqueEvent"
         finally:
@@ -124,6 +125,49 @@ class TestStreaming:
             l25_hand.stop_stream()
             l25_hand.stop_polling()
 
+    def test_stream_stop_idempotent_and_reopen(self, l25_hand: L25):
+        """stop_stream is idempotent; re-opening stream should not raise."""
+        try:
+            l25_hand.start_polling(
+                {SensorSource.ANGLE: 0.1, SensorSource.TEMPERATURE: 0.1}
+            )
+            queue = l25_hand.stream()
+            assert queue is not None
+
+            l25_hand.stop_stream()
+            l25_hand.stop_stream()  # idempotent
+
+            # Re-open
+            queue2 = l25_hand.stream()
+            assert queue2 is not None
+
+            angle_events: list[AngleEvent] = []
+            temp_events: list[TemperatureEvent] = []
+
+            def collect() -> None:
+                for event in queue2:
+                    if isinstance(event, AngleEvent):
+                        angle_events.append(event)
+                    elif isinstance(event, TemperatureEvent):
+                        temp_events.append(event)
+
+            t = threading.Thread(target=collect, daemon=True)
+            t.start()
+            time.sleep(0.5)
+            l25_hand.stop_stream()
+            t.join(timeout=2)
+
+            # Verify re-opened stream delivered valid angle data
+            assert len(angle_events) >= 1, "Re-opened stream should deliver events"
+            first = angle_events[0]
+            angles = first.data.angles.to_list()
+            assert len(angles) == 16
+            for angle in angles:
+                assert 0 <= angle <= 100, f"Angle {angle} out of range [0, 100]"
+        finally:
+            l25_hand.stop_stream()
+            l25_hand.stop_polling()
+
     def test_stop_stream_clean(self, l25_hand: L25):
         """stop_stream should not raise errors."""
         try:
@@ -136,7 +180,7 @@ class TestStreaming:
 
     def test_stream_pattern_matching(self, l25_hand: L25):
         """Events should be categorizable via match/case."""
-        events = []
+        events: list = []
         try:
             l25_hand.start_polling(
                 {
@@ -146,19 +190,18 @@ class TestStreaming:
             )
             queue = l25_hand.stream()
 
-            def collect():
+            def collect() -> None:
                 for event in queue:
                     events.append(event)
 
             t = threading.Thread(target=collect, daemon=True)
             t.start()
-            time.sleep(2)
+            time.sleep(0.5)
             l25_hand.stop_stream()
             t.join(timeout=2)
 
             angle_count = 0
             temperature_count = 0
-
             for event in events:
                 match event:
                     case AngleEvent():

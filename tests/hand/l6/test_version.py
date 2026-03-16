@@ -58,3 +58,33 @@ class TestDeviceInfo:
 
         assert info.timestamp > 0, "timestamp should be positive"
         assert info.timestamp <= time.time(), "timestamp should not be in the future"
+
+    def test_timestamp_progression_and_full_validation(self, l6_hand: L6):
+        """Two consecutive calls should have increasing timestamps; second fully validated."""
+        info1 = l6_hand.version.get_device_info()
+        time.sleep(0.2)
+        info2 = l6_hand.version.get_device_info()
+
+        assert info2.timestamp > info1.timestamp, (
+            f"Second timestamp ({info2.timestamp:.3f}) should be > first ({info1.timestamp:.3f})"
+        )
+
+        assert isinstance(info2, DeviceInfo), "Expected a DeviceInfo instance"
+        assert info2.serial_number is not None, "serial_number should not be None"
+        assert len(info2.serial_number) > 0, "serial_number should not be empty"
+
+        for label, version in [
+            ("pcb_version", info2.pcb_version),
+            ("firmware_version", info2.firmware_version),
+            ("mechanical_version", info2.mechanical_version),
+        ]:
+            assert isinstance(version, Version), f"{label} should be a Version instance"
+            assert version.major >= 0, f"{label}.major should be non-negative"
+            assert version.minor >= 0, f"{label}.minor should be non-negative"
+            assert version.patch >= 0, f"{label}.patch should be non-negative"
+
+        print(f"\n  Serial Number:      {info2.serial_number}")
+        print(f"  PCB Version:        {info2.pcb_version}")
+        print(f"  Firmware Version:   {info2.firmware_version}")
+        print(f"  Mechanical Version: {info2.mechanical_version}")
+        print(f"  Timestamp delta:    {info2.timestamp - info1.timestamp:.3f}s")

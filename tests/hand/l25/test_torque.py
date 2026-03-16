@@ -1,4 +1,4 @@
-"""Tests for L25 SpeedManager with hardware."""
+"""Tests for L25 TorqueManager with hardware."""
 
 import threading
 import time
@@ -6,7 +6,7 @@ import time
 import pytest
 
 from linkerbot import L25
-from linkerbot.hand.l25 import AngleEvent, L25Speed, SensorSource
+from linkerbot.hand.l25 import AngleEvent, L25Torque, SensorSource
 from tests.conftest import InteractiveSession
 
 pytestmark = [pytest.mark.l25, pytest.mark.control]
@@ -71,7 +71,6 @@ def _move_and_time(
     deadline = start + timeout_sec
     timer = threading.Timer(timeout_sec, hand.stop_stream)
     timer.start()
-
     try:
         for event in queue:
             if not isinstance(event, AngleEvent):
@@ -87,131 +86,87 @@ def _move_and_time(
         timer.cancel()
         hand.stop_stream()
         hand.stop_polling()
-
     elapsed = time.perf_counter() - start
-    data = hand.angle.get_blocking(timeout_ms=500)
+    data = hand.angle.get_snapshot()
     print(
         f"\n  Motion time: {elapsed:.2f}s | "
-        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()]}"
+        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()] if data else 'N/A'}"
     )
     return elapsed, timed_out
 
 
-class TestSpeedManagerSet:
-    """Test SpeedManager set_speeds method."""
-
-    def test_set_speeds_with_list(self, l25_hand: L25):
-        """set_speeds should accept a list of floats without error."""
-        l25_hand.speed.set_speeds([50.0] * 16)
-
-    def test_set_speeds_with_l25_speed(self, l25_hand: L25):
-        """set_speeds should accept an L25Speed instance without error."""
-        l25_hand.speed.set_speeds(
-            L25Speed(
-                thumb_abd=100.0,
-                thumb_yaw=100.0,
-                thumb_root1=50.0,
-                thumb_tip=50.0,
-                index_abd=50.0,
-                index_root1=50.0,
-                index_tip=50.0,
-                middle_abd=50.0,
-                middle_root1=50.0,
-                middle_tip=50.0,
-                ring_abd=50.0,
-                ring_root1=50.0,
-                ring_tip=50.0,
-                pinky_abd=50.0,
-                pinky_root1=50.0,
-                pinky_tip=50.0,
-            )
-        )
-
-    def test_set_different_speeds(self, l25_hand: L25):
-        """set_speeds should accept different per-motor speeds without error."""
-        l25_hand.speed.set_speeds(
-            [
-                20.0,
-                40.0,
-                60.0,
-                80.0,
-                100.0,
-                50.0,
-                30.0,
-                70.0,
-                90.0,
-                10.0,
-                25.0,
-                45.0,
-                65.0,
-                85.0,
-                55.0,
-                35.0,
-            ]
-        )
-
-
-class TestSpeedManagerBlocking:
-    """Test SpeedManager blocking read."""
+class TestTorqueManagerBlocking:
+    """Test TorqueManager blocking read."""
 
     def test_get_blocking_returns_valid_data(self, l25_hand: L25):
-        """Blocking read should return 16 speed values."""
-        data = l25_hand.speed.get_blocking(timeout_ms=500)
-
+        """Blocking read should return 16 torque values."""
+        data = l25_hand.torque.get_blocking(timeout_ms=500)
         assert data is not None
-        assert len(data.speeds) == 16
-        print(f"\n  Speeds: {[f'{s:.1f}' for s in data.speeds.to_list()]}")
+        assert len(data.torques) == 16
+        print(f"\n  Torques: {[f'{t:.1f}' for t in data.torques.to_list()]}")
 
     def test_get_blocking_has_timestamp(self, l25_hand: L25):
-        """Speed data should have a valid timestamp."""
-        data = l25_hand.speed.get_blocking(timeout_ms=500)
-
+        """Torque data should have a valid timestamp."""
+        data = l25_hand.torque.get_blocking(timeout_ms=500)
         assert data.timestamp > 0
         assert data.timestamp <= time.time()
 
+    def test_set_torques_with_list(self, l25_hand: L25):
+        """set_torques should accept list[float] without error."""
+        l25_hand.torque.set_torques([50.0] * 16)
 
-class TestSpeedManagerSnapshot:
-    """Test SpeedManager snapshot mode."""
+    def test_set_torques_with_l25_torque(self, l25_hand: L25):
+        """set_torques should accept L25Torque instance without error."""
+        l25_hand.torque.set_torques(L25Torque.from_list([50.0] * 16))
+
+
+class TestTorqueManagerSnapshot:
+    """Test TorqueManager snapshot mode."""
 
     def test_snapshot_populated_after_read(self, l25_hand: L25):
         """get_snapshot should return non-None after blocking read."""
-        l25_hand.speed.get_blocking(timeout_ms=500)
-        data = l25_hand.speed.get_snapshot()
+        l25_hand.torque.get_blocking(timeout_ms=500)
+        data = l25_hand.torque.get_snapshot()
         assert data is not None
-        assert len(data.speeds) == 16
+        assert len(data.torques) == 16
 
 
 @pytest.mark.interactive
-class TestSpeedInteractive:
-    """Interactive tests for verifying speed affects movement."""
+class TestTorqueInteractive:
+    """Interactive tests for verifying torque affects grip strength."""
 
-    def test_speed_levels(self, l25_hand: L25, interactive_session: InteractiveSession):
-        """Verify low/mid/high speed visibly affects finger movement speed."""
+    def test_torque_levels(
+        self, l25_hand: L25, interactive_session: InteractiveSession
+    ):
+        """Verify low/mid/high torque visibly affects grip strength."""
         session = interactive_session
         motion_results: list[tuple[str, float, bool]] = []
+
+        # Set speed to max for consistent observation
+        l25_hand.speed.set_speeds([100.0] * 16)
 
         def track(label: str, target: list[float]) -> None:
             elapsed, timed_out = _move_and_time(l25_hand, target)
             motion_results.append((label, elapsed, timed_out))
 
-        for level, speed_val in [("LOW", 10.0), ("MID", 30.0), ("HIGH", 100.0)]:
-            # Close fingers
+        for level, torque_val in [("LOW", 10.0), ("MID", 50.0), ("HIGH", 100.0)]:
+            # Close grip
             session.step(
-                instruction=f"[{level} speed={speed_val}] Closing fingers",
-                action=lambda lbl=f"{level} close", sv=speed_val: (
-                    l25_hand.speed.set_speeds([sv] * 16),
+                instruction=f"[{level} torque={torque_val}] Closing grip",
+                action=lambda lbl=f"{level} close", tv=torque_val: (
+                    l25_hand.torque.set_torques([tv] * 16),
                     track(lbl, CLOSED),
                 ),
                 expected=(
-                    f"Fingers close at {level} speed "
-                    f"({'slow' if level == 'LOW' else 'medium' if level == 'MID' else 'fast'})"
+                    f"Fingers close with {level} torque "
+                    f"(should feel {'weak' if level == 'LOW' else 'medium' if level == 'MID' else 'strong'})"
                 ),
             )
 
-            # Open fingers
+            # Open hand
             session.step(
-                instruction=f"[{level} speed={speed_val}] Opening hand",
-                action=lambda lbl=f"{level} open", sv=speed_val: (track(lbl, OPEN),),
+                instruction=f"[{level} torque={torque_val}] Opening hand",
+                action=lambda lbl=f"{level} open": (track(lbl, OPEN),),
                 expected="Fingers fully open",
             )
 

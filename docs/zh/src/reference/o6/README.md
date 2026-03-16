@@ -72,15 +72,15 @@ with O6(side="left", interface_name="can0") as hand:
 
 **SensorSource 可选值及默认频率**
 
-| 值                            | 说明     | 默认频率   |
-| ----------------------------- | -------- | ---------- |
-| `SensorSource.ANGLE`          | 角度     | 60 Hz      |
-| `SensorSource.TORQUE`         | 扭矩     | 不默认轮询 |
-| `SensorSource.SPEED`          | 速度     | 不默认轮询 |
-| `SensorSource.ACCELERATION`   | 加速度   | 不默认轮询 |
-| `SensorSource.TEMPERATURE`    | 温度     | 不默认轮询 |
-| `SensorSource.FAULT`          | 故障     | 不默认轮询 |
-| `SensorSource.FORCE_SENSOR`   | 力传感器 | 30 Hz      |
+| 值                          | 说明     | 默认频率   |
+| --------------------------- | -------- | ---------- |
+| `SensorSource.ANGLE`        | 角度     | 60 Hz      |
+| `SensorSource.TORQUE`       | 扭矩     | 不默认轮询 |
+| `SensorSource.SPEED`        | 速度     | 不默认轮询 |
+| `SensorSource.ACCELERATION` | 加速度   | 不默认轮询 |
+| `SensorSource.TEMPERATURE`  | 温度     | 不默认轮询 |
+| `SensorSource.FAULT`        | 故障     | 不默认轮询 |
+| `SensorSource.FORCE_SENSOR` | 力传感器 | 30 Hz      |
 
 ## 快照
 

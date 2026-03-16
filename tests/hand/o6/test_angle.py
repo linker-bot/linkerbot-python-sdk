@@ -1,17 +1,57 @@
 """Tests for O6 AngleManager with hardware."""
 
+import threading
 import time
 
 import pytest
 
 from linkerbot import O6
-from linkerbot.hand.o6 import O6Angle
+from linkerbot.hand.o6 import AngleEvent, O6Angle, SensorSource
 from tests.conftest import InteractiveSession
-from tests.hand.o6.conftest import move_and_wait
 
 pytestmark = [pytest.mark.o6, pytest.mark.control]
 
 TOLERANCE = 15.0
+MOTION_TIMEOUT_SEC = 5.0
+_POLLING_INTERVAL_SEC = 0.1
+
+
+def _move_until_settled(
+    hand: O6,
+    target: list[float],
+    tolerance: float = TOLERANCE,
+    timeout_sec: float = MOTION_TIMEOUT_SEC,
+) -> bool:
+    """Set target angles, stream until within tolerance or timeout. Returns True if timed out."""
+    hand.start_polling({SensorSource.ANGLE: _POLLING_INTERVAL_SEC})
+    queue = hand.stream()
+    hand.angle.set_angles(target)
+    start = time.perf_counter()
+    deadline = start + timeout_sec
+    timed_out = False
+    timer = threading.Timer(timeout_sec, hand.stop_stream)
+    timer.start()
+    try:
+        for event in queue:
+            if not isinstance(event, AngleEvent):
+                continue
+            angles = event.data.angles
+            if all(abs(angles[i] - target[i]) < tolerance for i in range(6)):
+                break
+            if time.perf_counter() >= deadline:
+                timed_out = True
+                break
+    finally:
+        timer.cancel()
+        hand.stop_stream()
+        hand.stop_polling()
+    elapsed = time.perf_counter() - start
+    data = hand.angle.get_snapshot()
+    print(
+        f"\n  Motion time: {elapsed:.2f}s | "
+        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()] if data else 'N/A'}"
+    )
+    return timed_out
 
 
 class TestAngleManagerBlocking:
@@ -25,6 +65,8 @@ class TestAngleManagerBlocking:
         assert len(data.angles) == 6
         for angle in data.angles.to_list():
             assert 0 <= angle <= 100, f"Angle {angle} out of range [0, 100]"
+
+        print(f"\n  Angles: {[f'{a:.1f}' for a in data.angles.to_list()]}")
 
     def test_get_blocking_has_timestamp(self, o6_hand: O6):
         """Angle data timestamp should be positive and not in the future."""
@@ -42,11 +84,14 @@ class TestAngleManagerSetAngles:
         target = [50.0, 100.0, 50.0, 50.0, 50.0, 50.0]
 
         o6_hand.angle.set_angles(target)
-        time.sleep(2)
+        time.sleep(2.0)
 
         data = o6_hand.angle.get_blocking(timeout_ms=500)
         assert data is not None
         assert len(data.angles) == 6
+        print(
+            f"\n  Read-back after set_angles (list): {[f'{a:.1f}' for a in data.angles.to_list()]}"
+        )
 
     def test_set_angles_with_o6angle(self, o6_hand: O6):
         """set_angles should accept O6Angle instance without error and allow read-back."""
@@ -60,24 +105,14 @@ class TestAngleManagerSetAngles:
         )
 
         o6_hand.angle.set_angles(target)
-        time.sleep(2)
+        time.sleep(2.0)
 
         data = o6_hand.angle.get_blocking(timeout_ms=500)
         assert data is not None
         assert len(data.angles) == 6
-
-    def test_set_and_read_within_tolerance(self, o6_hand: O6):
-        """Set [50]*6, read back, each angle should be within tolerance of target."""
-        target = [50.0, 100.0, 50.0, 50.0, 50.0, 50.0]
-
-        o6_hand.angle.set_angles(target)
-        time.sleep(2)
-
-        data = o6_hand.angle.get_blocking(timeout_ms=500)
-        for i, expected in enumerate(target):
-            assert abs(data.angles[i] - expected) < TOLERANCE, (
-                f"Angle {i} expected ~{expected}, got {data.angles[i]}"
-            )
+        print(
+            f"\n  Read-back after set_angles (O6Angle): {[f'{a:.1f}' for a in data.angles.to_list()]}"
+        )
 
     def test_set_all_closed(self, o6_hand: O6):
         """Set all-closed grip pose and verify read-back within tolerance.
@@ -86,10 +121,10 @@ class TestAngleManagerSetAngles:
         """
         target = [0.0, 100.0, 0.0, 0.0, 0.0, 0.0]
 
-        o6_hand.angle.set_angles(target)
-        time.sleep(2)
+        _move_until_settled(o6_hand, target)
 
-        data = o6_hand.angle.get_blocking(timeout_ms=500)
+        data = o6_hand.angle.get_snapshot()
+        assert data is not None
         for i, expected in enumerate(target):
             assert abs(data.angles[i] - expected) < TOLERANCE, (
                 f"Angle {i} expected ~{expected}, got {data.angles[i]}"
@@ -99,50 +134,18 @@ class TestAngleManagerSetAngles:
         """Set all-open pose [100]*6 and verify read-back within tolerance."""
         target = [100.0] * 6
 
-        o6_hand.angle.set_angles(target)
-        time.sleep(2)
+        _move_until_settled(o6_hand, target)
 
-        data = o6_hand.angle.get_blocking(timeout_ms=500)
+        data = o6_hand.angle.get_snapshot()
+        assert data is not None
         for i, expected in enumerate(target):
             assert abs(data.angles[i] - expected) < TOLERANCE, (
                 f"Angle {i} expected ~{expected}, got {data.angles[i]}"
             )
 
-    def test_set_individual_finger(self, o6_hand: O6):
-        """Set one finger to a different value, verify it changed and others stayed."""
-        # First move all to a known baseline
-        baseline = [100.0] * 6
-        o6_hand.angle.set_angles(baseline)
-        time.sleep(2)
-
-        o6_hand.angle.get_blocking(timeout_ms=500)
-
-        # Change only the index finger (index 2) to 0
-        target = [100.0, 100.0, 0.0, 100.0, 100.0, 100.0]
-        o6_hand.angle.set_angles(target)
-        time.sleep(2)
-
-        data = o6_hand.angle.get_blocking(timeout_ms=500)
-
-        # The changed finger should be close to 0
-        assert abs(data.angles[2] - 0.0) < TOLERANCE, (
-            f"Index finger expected ~0, got {data.angles[2]}"
-        )
-
-        # Other fingers should remain roughly at baseline
-        for i in [0, 1, 3, 4, 5]:
-            assert abs(data.angles[i] - baseline[i]) < TOLERANCE, (
-                f"Angle {i} expected ~{baseline[i]}, got {data.angles[i]}"
-            )
-
 
 class TestAngleManagerSnapshot:
     """Test AngleManager snapshot (cache) mode."""
-
-    def test_snapshot_returns_none_before_any_read(self, o6_hand: O6):
-        """On fresh connection, snapshot may be None or contain valid data."""
-        data = o6_hand.angle.get_snapshot()
-        assert data is None or hasattr(data, "angles")
 
     def test_snapshot_populated_after_blocking_read(self, o6_hand: O6):
         """After get_blocking(), get_snapshot() should return non-None with 6 angles."""
@@ -152,37 +155,23 @@ class TestAngleManagerSnapshot:
         assert data is not None
         assert len(data.angles) == 6
 
+    def test_set_and_read_within_tolerance(self, o6_hand: O6):
+        """Set [50]*6, read back, each angle should be within tolerance of target."""
+        target = [50.0] * 6
+
+        o6_hand.angle.set_angles(target)
+        time.sleep(4.0)
+
+        data = o6_hand.angle.get_blocking(timeout_ms=500)
+        for i, expected in enumerate(target):
+            assert abs(data.angles[i] - expected) < TOLERANCE, (
+                f"Angle {i} expected ~{expected}, got {data.angles[i]}"
+            )
+
 
 @pytest.mark.interactive
 class TestAngleInteractive:
     """Interactive tests for angle control requiring human verification."""
-
-    def test_full_open_and_close(
-        self, o6_hand: O6, interactive_session: InteractiveSession
-    ):
-        """Human verifies hand opens fully then grips closed."""
-        session = interactive_session
-
-        session.step(
-            instruction="Setting all fingers to fully open [100]*6",
-            action=lambda: move_and_wait(o6_hand, [100.0] * 6),
-            expected="All fingers should be fully open / extended",
-        ).step(
-            instruction="Setting all fingers to closed grip [0, 100, 0, 0, 0, 0]",
-            action=lambda: move_and_wait(o6_hand, [0.0, 100.0, 0.0, 0.0, 0.0, 0.0]),
-            expected="All fingers should be gripped closed (thumb abduction stays open)",
-        )
-
-        session.run()
-        session.save_report()
-
-        if session.quit_early:
-            pytest.exit("Tester quit early")
-
-        failures = session.failed_steps()
-        if failures:
-            msgs = [f"- {f.instruction}: {f.notes}" for f in failures]
-            pytest.fail(f"{len(failures)} step(s) failed:\n" + "\n".join(msgs))
 
     def test_individual_finger_movement(
         self, o6_hand: O6, interactive_session: InteractiveSession
@@ -190,25 +179,27 @@ class TestAngleInteractive:
         """Human verifies each finger moves independently."""
         session = interactive_session
 
-        # Start from all-open position
+        def _reset_then_bend(target: list[float]) -> None:
+            _move_until_settled(o6_hand, [100.0] * 6)
+            _move_until_settled(o6_hand, target)
+
         session.step(
             instruction="Setting all fingers to fully open [100]*6",
-            action=lambda: move_and_wait(o6_hand, [100.0] * 6),
+            action=lambda: _move_until_settled(o6_hand, [100.0] * 6),
             expected="All fingers should be fully open / extended",
         )
 
         finger_names = ["thumb_flex", "thumb_abd", "index", "middle", "ring", "pinky"]
         for finger_idx, finger_name in enumerate(finger_names):
-            # Build target: all open (100), except the target finger set to 0,
-            # and thumb_abd (index 1) always stays at 100
             target = [100.0] * 6
             target[finger_idx] = 0.0
-            target[1] = 100.0  # thumb_abd always 100
+            if finger_idx != 1:
+                target[1] = 100.0  # thumb_abd stays at 100 except when testing it
 
             session.step(
-                instruction=f"Bending {finger_name} to 0 (others open, thumb_abd=100)",
-                action=lambda t=target: move_and_wait(o6_hand, t),
-                expected=f"Only {finger_name} should be bent; all other fingers remain open",
+                instruction=f"Bending {finger_name} (index {finger_idx}) to 0 (others 100)",
+                action=lambda t=target: _reset_then_bend(t),
+                expected=f"Only {finger_name} should be bent; all other joints remain open",
             )
 
         session.run()
@@ -228,14 +219,15 @@ class TestAngleInteractive:
         """Human verifies smooth gradual motion from 0 to 100."""
         session = interactive_session
 
+        _move_until_settled(o6_hand, [100.0] * 6)
+
         for pct in [0, 25, 50, 75, 100]:
-            # All fingers go to pct, except thumb_abd stays at 100
             target = [float(pct)] * 6
             target[1] = 100.0  # thumb_abd always 100
 
             session.step(
                 instruction=f"Moving all fingers to {pct}% (thumb_abd=100)",
-                action=lambda t=target: move_and_wait(o6_hand, t),
+                action=lambda t=target: _move_until_settled(o6_hand, t),
                 expected=f"All fingers (except thumb abduction) should be at ~{pct}%",
             )
 

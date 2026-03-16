@@ -66,6 +66,24 @@ class TestPolling:
         finally:
             o6_hand.stop_polling()
 
+    def test_snapshot_frozen_after_stop(self, o6_hand: O6):
+        """After stop_polling, snapshot should exist but not advance rapidly."""
+        try:
+            o6_hand.start_polling({SensorSource.ANGLE: 0.1})
+            time.sleep(0.5)
+        finally:
+            o6_hand.stop_polling()
+
+        snap = o6_hand.angle.get_snapshot()
+        assert snap is not None, "Snapshot should exist after polling stopped"
+        ts1 = snap.timestamp
+
+        time.sleep(0.3)
+
+        snap2 = o6_hand.angle.get_snapshot()
+        assert snap2 is not None
+        assert snap2.timestamp == ts1, "Snapshot should not update after stop_polling"
+
     def test_stop_polling_clean(self, o6_hand: O6):
         """stop_polling should be idempotent and not raise errors."""
         try:
@@ -76,9 +94,18 @@ class TestPolling:
             o6_hand.stop_polling()
 
     def test_polling_all_sources(self, o6_hand: O6):
-        """Polling with no args should poll all sources and populate snapshots."""
+        """Polling with all sources explicitly specified should populate all snapshots."""
         try:
-            o6_hand.start_polling()
+            o6_hand.start_polling(
+                {
+                    SensorSource.ANGLE: 0.1,
+                    SensorSource.TORQUE: 0.1,
+                    SensorSource.SPEED: 0.1,
+                    SensorSource.ACCELERATION: 0.1,
+                    SensorSource.TEMPERATURE: 0.1,
+                    SensorSource.FAULT: 0.1,
+                }
+            )
             time.sleep(1.5)
 
             snapshot = o6_hand.get_snapshot()

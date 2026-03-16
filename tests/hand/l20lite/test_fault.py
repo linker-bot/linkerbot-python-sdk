@@ -28,6 +28,8 @@ class TestFaultManagerBlocking:
                 f"Joint {i} should be a FaultCode"
             )
 
+        print(f"\n  Fault data: {[code.name for code in data.faults.to_list()]}")
+
     def test_no_fault_on_healthy_device(self, l20lite_hand: L20lite):
         """All 10 joints should report FaultCode.NONE on a healthy device."""
         data = l20lite_hand.fault.get_blocking(timeout_ms=100)
@@ -50,6 +52,8 @@ class TestFaultManagerBlocking:
         assert data.faults.ring_abd == FaultCode.NONE, "ring_abd should have no fault"
         assert data.faults.pinky_abd == FaultCode.NONE, "pinky_abd should have no fault"
         assert data.faults.thumb_yaw == FaultCode.NONE, "thumb_yaw should have no fault"
+
+        print("\n  All joints report FaultCode.NONE - device healthy")
 
     def test_has_any_fault_returns_false_when_healthy(self, l20lite_hand: L20lite):
         """has_any_fault should return False on a healthy device."""

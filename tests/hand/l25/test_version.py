@@ -25,6 +25,11 @@ class TestDeviceInfo:
             "mechanical_version should not be None"
         )
 
+        print(f"\n  Serial number: {info.serial_number}")
+        print(f"  PCB version: {info.pcb_version}")
+        print(f"  Firmware version: {info.firmware_version}")
+        print(f"  Mechanical version: {info.mechanical_version}")
+
     def test_serial_number_format(self, l25_hand: L25):
         """serial_number should be a non-empty string of reasonable length."""
         info = l25_hand.version.get_device_info()

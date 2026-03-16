@@ -57,3 +57,33 @@ class TestTemperatureManagerSnapshot:
 
         assert data is not None, "Snapshot should be populated after blocking read"
         assert len(data.temperatures) == 6
+
+
+class TestTemperatureExercise:
+    """Test temperature after motion."""
+
+    def test_temperature_after_exercise(self, l6_hand: L6):
+        """Temperatures should be readable after exercising the hand."""
+        baseline = l6_hand.temperature.get_blocking(timeout_ms=100)
+        assert baseline is not None
+        print(
+            f"\n  Baseline temps: {[f'{t:.1f}' for t in baseline.temperatures.to_list()]}"
+        )
+
+        # Exercise: half grip 10 times
+        for i in range(10):
+            l6_hand.angle.set_angles([50.0] * 6)
+            time.sleep(0.9)
+            l6_hand.angle.set_angles([100.0] * 6)
+            time.sleep(0.9)
+            print(f"  Exercise cycle {i + 1}/10 complete")
+
+        after = l6_hand.temperature.get_blocking(timeout_ms=100)
+        assert after is not None
+        print(f"  After exercise: {[f'{t:.1f}' for t in after.temperatures.to_list()]}")
+
+        snapshot = l6_hand.temperature.get_snapshot()
+        assert snapshot is not None, "Snapshot should be populated after blocking read"
+        assert snapshot.timestamp >= after.timestamp, (
+            "Snapshot timestamp should be no earlier than last blocking read"
+        )
