@@ -35,7 +35,7 @@ class InternalSensorType(IntEnum):
     ACCELERATION = 0x1D
     POSITION_KP = 0x19
     VELOCITY_KP = 0x17
-    VELOCITY_KI = 0x1A
+    VELOCITY_KI = 0x18
     HANDSHAKE = 0x01
 
 
