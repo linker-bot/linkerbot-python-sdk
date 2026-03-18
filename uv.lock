@@ -708,11 +708,15 @@ source = { editable = "." }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "pin" },
     { name = "pydantic" },
     { name = "python-can" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+
+[package.optional-dependencies]
+kinetix = [
+    { name = "pin" },
 ]
 
 [package.dev-dependencies]
@@ -730,11 +734,12 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=2.2.6" },
-    { name = "pin", specifier = ">=3.9.0" },
+    { name = "pin", marker = "extra == 'kinetix'", specifier = ">=3.9.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "python-can", specifier = ">=4.6.1" },
     { name = "scipy", specifier = ">=1.15.3" },
 ]
+provides-extras = ["kinetix"]
 
 [package.metadata.requires-dev]
 dev = [

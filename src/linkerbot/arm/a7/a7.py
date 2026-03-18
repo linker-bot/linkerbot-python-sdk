@@ -25,7 +25,6 @@ from linkerbot.arm.a7.consts import (
     NUM_JOINTS,
 )
 from linkerbot.arm.common import ControlMode, Pose, State
-from linkerbot.arm.kinetix import ArmKinetix
 from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import StateError, ValidationError
 from linkerbot.motion_timer import MotionTimer
@@ -65,7 +64,9 @@ class A7:
             A7Motor(id, self._can_dispatcher)
             for id in (range(61, 68) if side == "left" else range(51, 58))
         ]
-        self._kx = ArmKinetix(
+        from linkerbot.arm.kinetix import ArmKinetix
+
+        self._kx: ArmKinetix = ArmKinetix(
             "a7", side, tcp_offset=tcp_offset, world_frame=world_frame
         )
         self._control_mode: ControlMode | None = None

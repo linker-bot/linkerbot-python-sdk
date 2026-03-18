@@ -7,10 +7,14 @@ authors = [{ name = "Jason Yip", email = "yezi.2022@outlook.com" }]
 requires-python = ">=3.10"
 dependencies = [
   "numpy>=2.2.6",
-  "pin>=3.9.0",
   "pydantic>=2.12.5",
   "python-can>=4.6.1",
   "scipy>=1.15.3",
+]
+
+[project.optional-dependencies]
+kinetix = [
+  "pin>=3.9.0",
 ]
 
 [build-system]

@@ -28,8 +28,17 @@ with A7lite(
 
 构造时会自动检查所有 7 个电机是否在线。
 
+**前置依赖：** A7 Lite 依赖 Pinocchio 进行运动学计算，需要安装 `kinetix` 可选依赖：
+
+```bash
+pip install linkerbot-py[kinetix]
+```
+
+> **Windows 用户**：Pinocchio 不支持 pip 安装，请使用 `conda install pinocchio -c conda-forge`。
+
 **异常：**
 
+- `ImportError`: 未安装 `kinetix` 可选依赖（Pinocchio）
 - `ValueError`: `side` 或 `world_frame` 参数非法
 - `StateError`: 电机未响应 CAN 总线 / 上报数据超时
 
