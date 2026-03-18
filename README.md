@@ -9,7 +9,11 @@ Pure Python SDK for [Linkerbot](https://linkerbot.cn) dexterous hands.
 ## Installation
 
 ```bash
+# pip
 pip install linkerbot-py
+
+# uv
+uv add linkerbot-py
 ```
 
 ### Arm users
@@ -17,7 +21,11 @@ pip install linkerbot-py
 Arms (A7 / A7 Lite) require Pinocchio for kinematics. Install the `kinetix` extra:
 
 ```bash
+# pip
 pip install linkerbot-py[kinetix]
+
+# uv
+uv add linkerbot-py --extra kinetix
 ```
 
 > **Windows users:** Pinocchio does not support pip on Windows. Use `conda install pinocchio -c conda-forge` instead.

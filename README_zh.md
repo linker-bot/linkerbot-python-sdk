@@ -23,7 +23,7 @@ uv add linkerbot-py
 pip install git+https://github.com/linker-bot/linkerbot-python-sdk.git
 
 # uv
-uv add "linkerbot @ git+https://github.com/linker-bot/linkerbot-python-sdk"
+uv add "linkerbot-py @ git+https://github.com/linker-bot/linkerbot-python-sdk"
 ```
 
 ### 机械臂用户
@@ -31,7 +31,11 @@ uv add "linkerbot @ git+https://github.com/linker-bot/linkerbot-python-sdk"
 机械臂（A7 / A7 Lite）依赖 Pinocchio 进行运动学计算，需要额外安装 `kinetix`：
 
 ```bash
+# pip
 pip install linkerbot-py[kinetix]
+
+# uv
+uv add linkerbot-py --extra kinetix
 ```
 
 > **Windows 用户**：Pinocchio 不支持 pip 安装，请使用 `conda install pinocchio -c conda-forge`。
