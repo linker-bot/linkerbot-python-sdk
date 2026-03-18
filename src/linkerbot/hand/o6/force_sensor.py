@@ -201,12 +201,8 @@ class ForceSensorManager:
             t.start()
             threads.append((name, t))
 
-        # Send requests sequentially with 4ms MCU delay
-        finger_list = list(self._fingers.values())
-        for i, sensor in enumerate(finger_list):
-            if i > 0:
-                time.sleep(self._MCU_INTER_REQUEST_DELAY_S)
-            sensor._send_request()
+        # Send requests sequentially with MCU inter-finger delay
+        self._send_sense_request()
 
         # Collect results
         for name, t in threads:
