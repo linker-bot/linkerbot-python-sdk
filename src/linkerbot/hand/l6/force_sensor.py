@@ -6,7 +6,6 @@ This module provides force sensor management for the L6 robotic hand:
 - ForceSensorManager: Manages all 5 fingers' force sensors (thumb, index, middle, ring, pinky).
 """
 
-import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -199,7 +198,9 @@ class ForceSensorManager:
     and provides unified access to sensor data from all fingers.
     """
 
-    _MCU_INTER_REQUEST_DELAY_S = 0.004  # 4ms - MCU can only handle one finger at a time
+    _MCU_INTER_REQUEST_DELAY_S = (
+        0.0025  # 2.5ms - MCU can only handle one finger at a time
+    )
 
     FINGER_COMMANDS = {
         "thumb": 0xB1,
@@ -237,8 +238,9 @@ class ForceSensorManager:
     def get_blocking(self, timeout_ms: float = 1000) -> AllFingersData:
         """Get force sensor data for all fingers with blocking wait.
 
-        All 5 fingers are queried in parallel. The timeout applies to the
-        entire operation rather than to each finger individually.
+        All 5 fingers are queried sequentially. Each finger's request is sent
+        only after the previous finger's complete response is received, ensuring
+        the MCU is idle before each new request.
 
         Args:
             timeout_ms: Maximum total time to wait in milliseconds (default: 1000).
@@ -259,39 +261,13 @@ class ForceSensorManager:
 
         deadline = time.monotonic() + timeout_ms / 1000.0
         results: dict[str, ForceSensorData] = {}
-        errors: list[str] = []
 
-        def wait_for(name: str, sensor: SingleForceSensorManager) -> None:
+        for name, sensor in self._fingers.items():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                errors.append(name)
-                return
-            try:
-                results[name] = sensor._relay.wait(remaining)
-            except TimeoutError:
-                errors.append(name)
-
-        # Start waiter threads before sending
-        threads: list[tuple[str, threading.Thread]] = []
-        for name, sensor in self._fingers.items():
-            t = threading.Thread(target=wait_for, args=(name, sensor), daemon=True)
-            t.start()
-            threads.append((name, t))
-
-        # Send requests sequentially with MCU inter-finger delay
-        self._send_sense_request()
-
-        for name, t in threads:
-            remaining = max(0, deadline - time.monotonic())
-            t.join(timeout=remaining)
-            if t.is_alive():
-                errors.append(name)
-
-        if errors:
-            raise TimeoutError(f"Force sensor timeout for: {', '.join(errors)}")
-        if len(results) != 5:
-            missing = set(self._fingers) - set(results)
-            raise TimeoutError(f"Force sensor timeout for: {', '.join(missing)}")
+                missing = set(self._fingers) - set(results)
+                raise TimeoutError(f"Force sensor timeout for: {', '.join(missing)}")
+            results[name] = sensor.get_blocking(timeout_ms=remaining * 1000)
 
         return AllFingersData(
             thumb=results["thumb"],
