@@ -76,9 +76,17 @@ class TestPolling:
             l20lite_hand.stop_polling()
 
     def test_polling_all_sources(self, l20lite_hand: L20lite):
-        """Polling with no args should poll all sources and populate snapshots."""
+        """Polling with all sources explicitly specified should populate all snapshots."""
         try:
-            l20lite_hand.start_polling()
+            l20lite_hand.start_polling(
+                {
+                    SensorSource.ANGLE: 0.1,
+                    SensorSource.SPEED: 0.1,
+                    SensorSource.TORQUE: 0.1,
+                    SensorSource.TEMPERATURE: 0.1,
+                    SensorSource.FORCE_SENSOR: 0.1,
+                }
+            )
             time.sleep(1.5)
 
             snapshot = l20lite_hand.get_snapshot()
