@@ -35,6 +35,15 @@ sudo ip link set can0 type can bitrate 1000000
 sudo ip link set can0 up
 ```
 
+连接多个 CAN 接口：Linux 系统会根据接口**创建时间自动递增**来命名接口，即根据 CAN 连接到主控板的顺序，依次命名为 `can0`、 `can1`、 `can2`，以此类推。可以串联依次执行以下命令启动多个 CAN 接口：
+
+```bash
+sudo ip link set can0 type can bitrate 1000000 && sudo ip link set can0 up && \
+sudo ip link set can1 type can bitrate 1000000 && sudo ip link set can1 up && \
+sudo ip link set can2 type can bitrate 1000000 && sudo ip link set can2 up
+# ...
+```
+
 ## Windows (PCAN)
 
 Windows 使用 PCAN 适配器：
