@@ -1,6 +1,6 @@
 [project]
 name = "linkerbot-py"
-version = "0.4.2"
+version = "0.5.0"
 description = "Linkerbot Python SDK"
 readme = "README.md"
 authors = [{ name = "Jason Yip", email = "yezi.2022@outlook.com" }]

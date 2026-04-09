@@ -1,6 +1,6 @@
 import math
 from collections.abc import Generator
-from importlib.resources import files
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -33,8 +33,10 @@ class IKResult(BaseModel):
 class ArmKinetix:
     """FK / IK solver and Cartesian motion planner for a robot arm.
 
-    The kinematic chain is loaded from a bundled URDF.  An optional TCP
-    (Tool Centre Point) offset extends the chain beyond the last URDF link.
+    The kinematic chain is loaded from a user-supplied URDF file.  An
+    optional TCP (Tool Centre Point) offset extends the chain beyond the
+    last URDF link.  For arms whose URDFs ship with this package, see
+    :meth:`from_builtin` for a convenience factory.
 
     Two world-frame conventions are supported:
 
@@ -43,8 +45,7 @@ class ArmKinetix:
       matching the Maestro system.
 
     Args:
-        arm_type: Types of Robotic Arms.
-        side: ``"left"`` or ``"right"`` arm.
+        urdf_path: Path to the URDF file describing the kinematic chain.
         tcp_offset: ``[x, y, z]`` translation (m) from the last URDF link
             to the actual tool centre point.
         world_frame: Coordinate-frame convention.
@@ -52,14 +53,14 @@ class ArmKinetix:
 
     def __init__(
         self,
-        arm_type: Literal["a7_lite", "a7"],
-        side: Literal["left", "right"],
+        urdf_path: str | Path,
         *,
         tcp_offset: list[float] = [0.0, 0.0, 0.0],
         world_frame: Literal["urdf", "maestro"] = "urdf",
     ) -> None:
-        self._arm_type = arm_type
-        self._side = side
+        self._urdf_path = Path(urdf_path)
+        if not self._urdf_path.is_file():
+            raise FileNotFoundError(f"URDF file not found: {self._urdf_path}")
         self._model = self._load_model()
 
         self._world_frame = world_frame
@@ -100,10 +101,38 @@ class ArmKinetix:
         """
         Load the Pinocchio model from the URDF.
         """
-        path = (
-            files("linkerbot.arm.kinetix.urdf") / f"{self._arm_type}__{self._side}.urdf"
+        return pin.buildModelFromUrdf(str(self._urdf_path))  # pyright: ignore[reportAttributeAccessIssue]
+
+    @classmethod
+    def from_builtin(
+        cls,
+        arm_type: Literal["a7_lite", "a7"],
+        side: Literal["left", "right"],
+        *,
+        tcp_offset: list[float] = [0.0, 0.0, 0.0],
+        world_frame: Literal["urdf", "maestro"] = "urdf",
+    ) -> "ArmKinetix":
+        """Construct an ArmKinetix from a URDF bundled with this package.
+
+        Convenience factory for arms whose URDFs ship inside
+        ``linkerbot.arm.kinetix.urdf``.  For arbitrary URDFs, use the
+        regular constructor with a file path instead.
+
+        Args:
+            arm_type: Built-in arm identifier.
+            side: ``"left"`` or ``"right"`` arm.
+            tcp_offset: ``[x, y, z]`` translation (m) from the last URDF
+                link to the actual tool centre point.
+            world_frame: Coordinate-frame convention.
+        """
+        from importlib.resources import files
+
+        path = files("linkerbot.arm.kinetix.urdf") / f"{arm_type}__{side}.urdf"
+        return cls(
+            urdf_path=str(path),
+            tcp_offset=tcp_offset,
+            world_frame=world_frame,
         )
-        return pin.buildModelFromUrdf(str(path))  # pyright: ignore[reportAttributeAccessIssue]
 
     def _build_ee_frame_id(self):
         """Create and register a TCP frame in the Pinocchio model.

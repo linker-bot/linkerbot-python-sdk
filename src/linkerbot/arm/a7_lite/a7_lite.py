@@ -63,7 +63,7 @@ class A7lite:
         ]
         from linkerbot.arm.kinetix import ArmKinetix
 
-        self._kx: ArmKinetix = ArmKinetix(
+        self._kx: ArmKinetix = ArmKinetix.from_builtin(
             "a7_lite", side, tcp_offset=tcp_offset, world_frame=world_frame
         )
         self._control_mode: ControlMode | None = None
