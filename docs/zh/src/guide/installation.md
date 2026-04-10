@@ -4,10 +4,10 @@
 
 ```bash
 # pip
-pip install linkerbot-py
+pip install linkerbot
 
 # uv
-uv add linkerbot-py
+uv add linkerbot
 ```
 
 从 Git 仓库安装：
@@ -17,7 +17,7 @@ uv add linkerbot-py
 pip install git+https://github.com/linker-bot/linkerbot-python-sdk.git
 
 # uv
-uv add "linkerbot-py @ git+https://github.com/linker-bot/linkerbot-python-sdk"
+uv add "linkerbot @ git+https://github.com/linker-bot/linkerbot-python-sdk"
 ```
 
 ## 可选依赖
@@ -28,10 +28,10 @@ uv add "linkerbot-py @ git+https://github.com/linker-bot/linkerbot-python-sdk"
 
 ```bash
 # pip (Linux / macOS)
-pip install linkerbot-py[kinetix]
+pip install linkerbot[kinetix]
 
 # uv
-uv add linkerbot-py --extra kinetix
+uv add linkerbot --extra kinetix
 ```
 
 > **Windows 用户注意**：Pinocchio 不支持在 Windows 上通过 pip 安装。请使用 Conda：
