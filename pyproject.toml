@@ -1,16 +1,20 @@
 [project]
 name = "linkerbot-py"
-version = "0.5.0"
+version = "0.5.1"
 description = "Linkerbot Python SDK"
 readme = "README.md"
 authors = [{ name = "Jason Yip", email = "yezi.2022@outlook.com" }]
 requires-python = ">=3.10"
+classifiers = ["Development Status :: 7 - Inactive"]
 dependencies = [
   "numpy>=2.2.6",
   "pydantic>=2.12.5",
   "python-can>=4.6.1",
   "scipy>=1.15.3",
 ]
+
+[project.urls]
+"New Linkerbot Python SDK" = "https://github.com/linker-bot/linkerbot-python-sdk"
 
 [project.optional-dependencies]
 kinetix = ["pin>=3.9.0"]

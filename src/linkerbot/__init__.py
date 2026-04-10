@@ -1,5 +1,7 @@
 """Linkerhand Python SDK for dexterous hand and robotic arm control."""
 
+import warnings
+
 from .arm import A7, A7lite, ControlMode, Pose
 from .exceptions import (
     CANError,
@@ -9,6 +11,12 @@ from .exceptions import (
     ValidationError,
 )
 from .hand import L6, L25, O6, L20lite
+
+warnings.warn(
+    "linkerbot-py is deprecated. Install linkerbot instead: uv add linkerbot/pip install linkerbot",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = [
     "LinkerbotError",
