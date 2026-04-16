@@ -30,7 +30,7 @@ switch:
 [group('git')]
 sync-oss:
     git push oss main
-    git push oss --tags
+    git tag | grep -v a | xargs -r git push oss
 
 [group('docs')]
 preview:
