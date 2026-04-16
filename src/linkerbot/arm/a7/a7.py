@@ -25,7 +25,7 @@ from linkerbot.arm.a7.consts import (
     NUM_JOINTS,
 )
 from linkerbot.arm.common import ControlMode, Pose, State
-from linkerbot.comm import CANMessageDispatcher
+from linkerbot.comm import CanInterface, CANMessageDispatcher
 from linkerbot.exceptions import StateError, ValidationError
 from linkerbot.motion_timer import MotionTimer
 
@@ -96,6 +96,11 @@ class A7:
     def _on_bus_error(self, error: Exception) -> None:
         self._bus_error = error
         self._closed = True
+
+    @property
+    def can_interface(self) -> CanInterface:
+        """CAN interface this arm is bound to."""
+        return self._can_dispatcher.can_interface
 
     def start_polling(self, intervals: dict[SensorType, float] | None = None) -> None:
         if self._polling:

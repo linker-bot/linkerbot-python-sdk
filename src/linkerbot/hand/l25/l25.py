@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 from typing import Literal
 
-from linkerbot.comm import CANMessageDispatcher
+from linkerbot.comm import CanInterface, CANMessageDispatcher
 from linkerbot.exceptions import CANError, StateError, ValidationError
 from linkerbot.queue import IterableQueue
 
@@ -173,6 +173,11 @@ class L25:
 
         # Auto-start default polling
         self.start_polling()
+
+    @property
+    def can_interface(self) -> CanInterface:
+        """CAN interface this hand is bound to."""
+        return self._dispatcher.can_interface
 
     def __enter__(self) -> "L25":
         """Enter the context manager.

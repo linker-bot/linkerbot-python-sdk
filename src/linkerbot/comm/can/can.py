@@ -8,6 +8,8 @@ import can
 
 from linkerbot.exceptions import CANError
 
+from .types import CanInterface
+
 
 class CANMessageDispatcher:
     """A thread-safe CAN message dispatcher that manages subscribers and message routing.
@@ -35,6 +37,9 @@ class CANMessageDispatcher:
             on_bus_error: Optional callback invoked once when the bus becomes unavailable.
             max_consecutive_errors: Number of consecutive errors before declaring bus dead.
         """
+        self._can_interface = CanInterface(
+            interface_name=interface_name, interface_type=interface_type
+        )
         self._bitrate = 1_000_000
         self._bus: can.BusABC = can.Bus(
             channel=interface_name, interface=interface_type, bitrate=self._bitrate
@@ -58,6 +63,11 @@ class CANMessageDispatcher:
         )
         self._recv_thread.start()
         self._send_thread.start()
+
+    @property
+    def can_interface(self) -> CanInterface:
+        """CAN interface this dispatcher is bound to."""
+        return self._can_interface
 
     def _handle_bus_error(self, error: Exception) -> None:
         """Handle a fatal bus error by stopping the dispatcher and notifying."""
