@@ -49,6 +49,9 @@ class ArmKinetix:
         tcp_offset: ``[x, y, z]`` translation (m) from the last URDF link
             to the actual tool centre point.
         world_frame: Coordinate-frame convention.
+        side: Optional ``"left"`` / ``"right"`` tag identifying which arm
+            this instance represents.  Set automatically by
+            :meth:`from_builtin`; ``None`` when the side is unknown.
     """
 
     def __init__(
@@ -57,10 +60,12 @@ class ArmKinetix:
         *,
         tcp_offset: list[float] = [0.0, 0.0, 0.0],
         world_frame: Literal["urdf", "maestro"] = "urdf",
+        side: Literal["left", "right"] | None = None,
     ) -> None:
         self._urdf_path = Path(urdf_path)
         if not self._urdf_path.is_file():
             raise FileNotFoundError(f"URDF file not found: {self._urdf_path}")
+        self._side: Literal["left", "right"] | None = side
         self._model = self._load_model()
 
         self._world_frame = world_frame
@@ -97,6 +102,11 @@ class ArmKinetix:
     def get_joint_limits(self) -> list[tuple[float, float]]:
         return self._joint_limits
 
+    @property
+    def side(self) -> Literal["left", "right"] | None:
+        """Side tag this instance was constructed with, or ``None``."""
+        return self._side
+
     def _load_model(self) -> pin.Model:  # pyright: ignore[reportAttributeAccessIssue]
         """
         Load the Pinocchio model from the URDF.
@@ -132,6 +142,7 @@ class ArmKinetix:
             urdf_path=str(path),
             tcp_offset=tcp_offset,
             world_frame=world_frame,
+            side=side,
         )
 
     def _build_ee_frame_id(self):
