@@ -20,10 +20,10 @@ uv add linkerbot
 
 ```bash
 # pip
-pip install git+https://github.com/linker-bot/linkerbotthon-sdk.git
+pip install git+https://github.com/linker-bot/linkerbot-python-sdk.git
 
 # uv
-uv add "linkerbot @ git+https://github.com/linker-bot/linkerbotthon-sdk"
+uv add "linkerbot @ git+https://github.com/linker-bot/linkerbot-python-sdk"
 ```
 
 ### 机械臂用户

@@ -9,7 +9,7 @@ from .exceptions import (
     TimeoutError,
     ValidationError,
 )
-from .hand import L6, L25, O6, L20lite
+from .hand import L6, L25, L30, L30Bus, O6, L20lite
 
 __all__ = [
     "LinkerbotError",
@@ -21,6 +21,8 @@ __all__ = [
     "L20lite",
     "O6",
     "L25",
+    "L30",
+    "L30Bus",
     "A7",
     "A7lite",
     "Pose",
