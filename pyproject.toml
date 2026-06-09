@@ -43,6 +43,7 @@ markers = [
   "l25: Tests for L25 robotic hand",
   "o6: Tests for O6 robotic hand",
   "l30: Tests for L30 robotic hand",
+  "o20: Tests for O20 robotic hand",
   "canfd: Tests for CANFD communication",
   "hardware: Tests requiring physical hardware",
   "slow: Tests that take longer to run",
