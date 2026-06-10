@@ -20,12 +20,17 @@ try:  # pragma: no cover - exercised by Python version
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
     import tomli as tomllib
 
-import tomli_w
+# tomli_w is imported lazily inside _save_file() so that simply importing this
+# module — which arm-only users transitively do via ``import linkerbot`` — does
+# not require tomli_w to be installed. It is only needed when a mapping is
+# actually persisted to disk.
 
 from linkerbot.exceptions import ValidationError
 
 _MAPPING_SIZE = 256
-_DEFAULT_MAPPING_PATH = Path.home() / ".config" / "linkerbot" / "hand_angle_mappings.toml"
+_DEFAULT_MAPPING_PATH = (
+    Path.home() / ".config" / "linkerbot" / "hand_angle_mappings.toml"
+)
 
 
 class AngleMappingManager:
@@ -54,7 +59,9 @@ class AngleMappingManager:
         self._section_key = f"{self._model}:{self._side}:{self._interface_name}"
         self._joint_names = list(joint_names)
         self._joint_count = len(joint_names)
-        self._path = Path(mapping_path).expanduser() if mapping_path else _DEFAULT_MAPPING_PATH
+        self._path = (
+            Path(mapping_path).expanduser() if mapping_path else _DEFAULT_MAPPING_PATH
+        )
         self._mapping = self._load_or_create()
 
     @property
@@ -131,17 +138,17 @@ class AngleMappingManager:
         return data
 
     def _save_file(self, data: dict[str, Any]) -> None:
+        import tomli_w  # local import: only required when persisting to disk
+
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = self._path.with_name(f"{self._path.name}.tmp")
         tmp_path.write_text(tomli_w.dumps(data), encoding="utf-8")
         tmp_path.replace(self._path)
 
 
-
 def default_angle_mapping(joint_count: int) -> list[list[int]]:
     """Create a default linear raw angle mapping matrix."""
     return [list(range(_MAPPING_SIZE)) for _ in range(joint_count)]
-
 
 
 def validate_angle_mapping(
@@ -151,7 +158,9 @@ def validate_angle_mapping(
     if not isinstance(mapping, list):
         raise ValidationError(f"{name} must be a list")
     if len(mapping) != joint_count:
-        raise ValidationError(f"{name} must contain {joint_count} rows, got {len(mapping)}")
+        raise ValidationError(
+            f"{name} must contain {joint_count} rows, got {len(mapping)}"
+        )
 
     validated: list[list[int]] = []
     for row_index, row in enumerate(mapping):
@@ -177,13 +186,16 @@ def validate_angle_mapping(
     return validated
 
 
-
 def validate_raw_values(raw_values: object, joint_count: int) -> list[int]:
     """Validate and copy a standard raw angle list."""
     if not isinstance(raw_values, list):
-        raise ValidationError(f"raw_angles must be a list, got {type(raw_values).__name__}")
+        raise ValidationError(
+            f"raw_angles must be a list, got {type(raw_values).__name__}"
+        )
     if len(raw_values) != joint_count:
-        raise ValidationError(f"Expected {joint_count} raw angle values, got {len(raw_values)}")
+        raise ValidationError(
+            f"Expected {joint_count} raw angle values, got {len(raw_values)}"
+        )
     validated: list[int] = []
     for index, value in enumerate(raw_values):
         if type(value) is not int:
