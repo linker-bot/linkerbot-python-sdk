@@ -116,7 +116,7 @@ class ArmKinetix:
     @classmethod
     def from_builtin(
         cls,
-        arm_type: Literal["a7_lite", "a7"],
+        arm_type: Literal["a7_lite", "a7", "a7_v2"],
         side: Literal["left", "right"],
         *,
         tcp_offset: list[float] = [0.0, 0.0, 0.0],

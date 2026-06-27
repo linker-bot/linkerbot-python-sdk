@@ -24,7 +24,7 @@ from .exceptions import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - import-time only for static checkers
-    from .arm import A7, A7lite, ControlMode, Pose
+    from .arm import A7, A7V2, A7lite, ControlMode, Pose
     from .hand import L6, L25, L30, O6, O20, L20lite, L30Bus
 
 # Map every lazily-exported public name to (submodule, attribute).
@@ -32,6 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover - import-time only for static checkers
 # at the top level without forcing eager import of its subpackage.
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "A7": ("linkerbot.arm", "A7"),
+    "A7V2": ("linkerbot.arm", "A7V2"),
     "A7lite": ("linkerbot.arm", "A7lite"),
     "ControlMode": ("linkerbot.arm", "ControlMode"),
     "Pose": ("linkerbot.arm", "Pose"),
@@ -73,6 +74,7 @@ __all__ = [
     "L30Bus",
     "O20",
     "A7",
+    "A7V2",
     "A7lite",
     "Pose",
     "ControlMode",
