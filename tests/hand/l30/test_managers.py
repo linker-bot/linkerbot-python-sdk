@@ -40,7 +40,7 @@ def test_angle_speed_and_torque_commands_match_vectors() -> None:
     dispatcher = FakeDispatcher()
     client = L30Client(dispatcher, node_id=1, host_id=0)
 
-    AngleManager(client).set_angles([100] * protocol.L30_JOINT_COUNT)
+    AngleManager(client).set_raw_angles([100] * protocol.L30_JOINT_COUNT)
     SpeedManager(client).set_speeds([60] * protocol.L30_JOINT_COUNT)
     TorqueManager(client).set_torques([200] * protocol.L30_JOINT_COUNT)
 
@@ -71,8 +71,8 @@ def test_angle_read_response_allows_out_of_command_range_sensor_values() -> None
     )
     thread.join(timeout=1)
 
-    assert result[0].angles.to_list() == values
-    assert angle.get_snapshot().angles.to_list() == values
+    assert result[0].angles.to_raw() == values
+    assert angle.get_snapshot().angles.to_raw() == values
 
 
 def test_current_temperature_read_responses_update_snapshots() -> None:
@@ -121,7 +121,7 @@ def test_report_config_and_active_report_update_angle_snapshot() -> None:
     assert dispatcher.sent[0].dlc == 0x0A
 
     _response(dispatcher, 0x00802008, bytes([0x22, 0x00]) + b"\x00\x05" * 17)
-    assert angle.get_snapshot().angles.to_list() == [5] * 17
+    assert angle.get_snapshot().angles.to_raw() == [5] * 17
 
 
 def test_force_sensor_assembles_tactile_matrix() -> None:

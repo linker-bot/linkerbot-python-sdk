@@ -1,14 +1,11 @@
 import pytest
 
 from linkerbot.exceptions import ValidationError
-from linkerbot.hand.l30 import percentages_to_raw as exported_percentages_to_raw
-from linkerbot.hand.l30 import raw_to_percentages as exported_raw_to_percentages
 from linkerbot.hand.l30.joints import (
     L30_JOINT_COUNT,
     L30_JOINT_SPECS,
     L30Angle,
-    percentages_to_raw,
-    raw_to_percentages,
+    validate_raw_command_values,
     validate_u16_values,
 )
 
@@ -25,55 +22,87 @@ def test_joint_specs_match_l30_v2_ranges() -> None:
     assert L30_JOINT_SPECS[16].maximum == 900
 
 
-def test_l30_angle_round_trips_list_index_and_len() -> None:
-    values = [spec.minimum for spec in L30_JOINT_SPECS]
-    angle = L30Angle.from_list(values)
+def test_l30_angle_stores_percentages_and_round_trips() -> None:
+    percentages = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0,
+                   0.0, 100.0, 25.0, 50.0, 75.0, 33.3, 66.6, 50.0]
+    angle = L30Angle.from_list(percentages)
 
-    assert angle.to_list() == values
-    assert angle[0] == values[0]
+    assert angle.to_list() == percentages
+    assert angle[0] == pytest.approx(10.0)
     assert len(angle) == L30_JOINT_COUNT
 
 
-def test_l30_angle_accepts_signed_joint_ranges() -> None:
-    values = [spec.maximum for spec in L30_JOINT_SPECS]
+def test_l30_angle_percentage_boundaries_map_to_spec_range() -> None:
+    zero_percent = L30Angle.from_list([0.0] * L30_JOINT_COUNT)
+    assert zero_percent.to_raw() == [spec.minimum for spec in L30_JOINT_SPECS]
 
-    assert L30Angle.from_list(values).to_list() == values
+    full_percent = L30Angle.from_list([100.0] * L30_JOINT_COUNT)
+    assert full_percent.to_raw() == [spec.maximum for spec in L30_JOINT_SPECS]
+
+
+def test_l30_angle_fifty_percent_is_signed_joint_center() -> None:
+    """For symmetric joints (J5/J12-J14/J17) 50 % must be the neutral 0."""
+    midpoint = L30Angle.from_list([50.0] * L30_JOINT_COUNT)
+    raw = midpoint.to_raw()
+
+    for joint_index in (4, 11, 12, 13, 16):  # J5, J12, J13, J14, J17
+        assert raw[joint_index] == 0
 
 
 def test_l30_angle_rejects_wrong_count() -> None:
     with pytest.raises(ValidationError, match="17"):
-        L30Angle.from_list([0] * 16)
+        L30Angle.from_list([0.0] * 16)
 
 
-def test_l30_angle_rejects_wrong_type() -> None:
+def test_l30_angle_rejects_out_of_percentage_range() -> None:
+    with pytest.raises(ValidationError, match="0 and 100"):
+        L30Angle.from_list([101.0] * L30_JOINT_COUNT)
+    with pytest.raises(ValidationError, match="0 and 100"):
+        L30Angle.from_list([-0.1] * L30_JOINT_COUNT)
+
+
+def test_l30_angle_rejects_non_numeric_percentage() -> None:
+    values: list[float] = [0.0] * L30_JOINT_COUNT
+    values[0] = "50"  # type: ignore[list-item]
+    with pytest.raises(ValidationError, match="float/int"):
+        L30Angle.from_list(values)
+
+
+def test_l30_angle_from_raw_round_trips_command_range() -> None:
+    raws = [spec.maximum for spec in L30_JOINT_SPECS]
+    angle = L30Angle.from_raw(raws)
+
+    assert angle.to_list() == [100.0] * L30_JOINT_COUNT
+    assert angle.to_raw() == raws
+
+
+def test_l30_angle_from_raw_rejects_out_of_spec_range() -> None:
+    raws = [spec.minimum for spec in L30_JOINT_SPECS]
+    raws[0] = 881  # J1 max is 880
+
+    with pytest.raises(ValidationError, match="880"):
+        L30Angle.from_raw(raws)
+
+
+def test_l30_angle_from_raw_rejects_non_int() -> None:
     values: list[int] = [spec.minimum for spec in L30_JOINT_SPECS]
     values[0] = 1.5  # type: ignore[list-item]
 
     with pytest.raises(ValidationError, match="int"):
-        L30Angle.from_list(values)
+        L30Angle.from_raw(values)
 
 
-def test_l30_angle_rejects_bool_values() -> None:
-    values = [spec.minimum for spec in L30_JOINT_SPECS]
-    values[0] = True
+def test_l30_angle_from_sensor_raw_allows_out_of_range() -> None:
+    """Sensor readback may overshoot the documented command range."""
+    raws = [spec.minimum for spec in L30_JOINT_SPECS]
+    raws[9] = -1  # J10 minimum is 0, sensor returned -1
 
-    with pytest.raises(ValidationError, match="int"):
-        L30Angle.from_list(values)
+    angle = L30Angle.from_sensor_raw(raws)
 
-
-def test_l30_angle_rejects_out_of_range() -> None:
-    values = [spec.minimum for spec in L30_JOINT_SPECS]
-    values[0] = 881
-
-    with pytest.raises(ValidationError, match="880"):
-        L30Angle.from_list(values)
-
-
-def test_l30_angle_sensor_values_allow_out_of_command_range_readback() -> None:
-    values = [spec.minimum for spec in L30_JOINT_SPECS]
-    values[9] = -1
-
-    assert L30Angle.from_sensor_values(values).to_list() == values
+    # Zero-percentage sanity: all-min raw values (except J10 which was -1)
+    # produce 0 percent per joint; J10 should be slightly negative.
+    assert angle.to_list()[0] == 0.0
+    assert angle.to_list()[9] < 0
 
 
 def test_validate_u16_values_checks_count_and_range() -> None:
@@ -88,28 +117,13 @@ def test_validate_u16_values_checks_count_and_range() -> None:
         validate_u16_values([59] * 17, name="torques", minimum=60, maximum=800)
 
 
-def test_percentages_convert_to_raw_using_each_joint_range() -> None:
-    angle = percentages_to_raw([0] * L30_JOINT_COUNT)
-    assert angle.to_list() == [spec.minimum for spec in L30_JOINT_SPECS]
+def test_validate_raw_command_values_matches_joint_specs() -> None:
+    validated = validate_raw_command_values(
+        [spec.maximum for spec in L30_JOINT_SPECS]
+    )
+    assert validated == tuple(spec.maximum for spec in L30_JOINT_SPECS)
 
-    angle = percentages_to_raw([100] * L30_JOINT_COUNT)
-    assert angle.to_list() == [spec.maximum for spec in L30_JOINT_SPECS]
-
-
-def test_raw_to_percentages_converts_signed_ranges() -> None:
-    angle = L30Angle.from_list([spec.minimum for spec in L30_JOINT_SPECS])
-
-    assert raw_to_percentages(angle) == (0.0,) * L30_JOINT_COUNT
-
-
-def test_percentage_helpers_are_exported_from_l30_package() -> None:
-    angle = exported_percentages_to_raw([0] * L30_JOINT_COUNT)
-
-    assert exported_raw_to_percentages(angle) == (0.0,) * L30_JOINT_COUNT
-
-
-def test_percentages_reject_invalid_values() -> None:
-    with pytest.raises(ValidationError):
-        percentages_to_raw([101] * L30_JOINT_COUNT)
-    with pytest.raises(ValidationError):
-        percentages_to_raw([True] * L30_JOINT_COUNT)
+    bad = [spec.maximum for spec in L30_JOINT_SPECS]
+    bad[0] = 881
+    with pytest.raises(ValidationError, match="880"):
+        validate_raw_command_values(bad)

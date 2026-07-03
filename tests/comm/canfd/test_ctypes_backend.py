@@ -22,6 +22,8 @@ class FakeFunction:
 
 class FakeLibrary:
     def __init__(self) -> None:
+        self.LibCANbus_Init = FakeFunction(0)
+        self.LibCANbus_Exit = FakeFunction(0)
         self.CAN_ScanDevice = FakeFunction(1)
         self.CAN_OpenDevice = FakeFunction(0)
         self.CAN_CloseDevice = FakeFunction(0)

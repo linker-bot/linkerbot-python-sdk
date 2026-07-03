@@ -181,3 +181,72 @@ def test_send_after_stop_raises_runtime_error() -> None:
 
     with pytest.raises(RuntimeError, match="stopped"):
         dispatcher.send(CANFDMessage(arbitration_id=1, data=b""))
+
+
+def test_send_loop_does_not_busy_wait_by_default() -> None:
+    """SEND_INTERVAL_S=0 must not spin a CPU between frames.
+
+    Regression guard against the prior `while time.monotonic() < deadline: pass`
+    that pegged a core and capped send throughput. We measure CPU time spent
+    by the *dispatcher* threads while idle (no work). With busy-wait, CPU time
+    rises linearly with wall time; with the fix, it stays near zero.
+    """
+    import os
+    import resource
+
+    interface = FakeInterface()
+    dispatcher = CANFDMessageDispatcher(interface=interface)
+    try:
+        wall_start = time.monotonic()
+        cpu_start = (
+            resource.getrusage(resource.RUSAGE_SELF).ru_utime
+            + resource.getrusage(resource.RUSAGE_SELF).ru_stime
+        )
+        # Send 100 frames; with busy-wait this would consume ~30 ms of CPU
+        # time in spinning. With the fix, idle time dominates.
+        message = CANFDMessage(arbitration_id=1, data=b"x")
+        for _ in range(100):
+            dispatcher.send(message)
+        wait_until(lambda: len(interface.sent) == 100, timeout_s=2.0)
+        wall_elapsed = time.monotonic() - wall_start
+        cpu_elapsed = (
+            resource.getrusage(resource.RUSAGE_SELF).ru_utime
+            + resource.getrusage(resource.RUSAGE_SELF).ru_stime
+        ) - cpu_start
+        # CPU/wall ratio caps the fraction of time we're not blocking. On a
+        # busy machine the test sometimes sees CPU=wall due to other threads,
+        # but the busy-wait bug specifically produced ratios > 0.8 on every
+        # run. Allow generous headroom.
+        assert cpu_elapsed < max(0.1, wall_elapsed * 0.7), (
+            f"dispatcher consumed {cpu_elapsed:.3f}s CPU over {wall_elapsed:.3f}s "
+            "wall — busy-wait may have returned"
+        )
+        _ = os  # keep import used even if unused under future edits
+    finally:
+        dispatcher.stop()
+
+
+def test_error_backoff_recovers_within_milliseconds() -> None:
+    """Transient receive errors must recover quickly, not pause the bus.
+
+    Previously the backoff scaled 0.1 → 1.0 s and a single hiccup blocked
+    receive for hundreds of milliseconds. The redesign tightens this to
+    5–50 ms so an L30 user does not observe seconds-long stalls.
+    """
+    interface = FakeInterface()
+    dispatcher = CANFDMessageDispatcher(
+        interface=interface, max_consecutive_errors=5
+    )
+    received: list[CANFDMessage] = []
+    message = CANFDMessage(arbitration_id=1, data=b"x")
+    try:
+        dispatcher.subscribe(received.append)
+        # Inject one transient error then a real message; with old backoff the
+        # message would take >100 ms to surface. New backoff should deliver
+        # well under 100 ms even with one error.
+        interface.incoming.put(CANError("transient"))
+        time.sleep(0.001)
+        interface.incoming.put(message)
+        wait_until(lambda: received == [message], timeout_s=0.2)
+    finally:
+        dispatcher.stop()

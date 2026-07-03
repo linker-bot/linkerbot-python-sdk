@@ -20,8 +20,6 @@ from .joints import (
     L30_JOINT_COUNT,
     L30_JOINT_SPECS,
     L30Angle,
-    percentages_to_raw,
-    raw_to_percentages,
 )
 from .l30 import L30
 from .protocol import L30FrameId, ProtocolError, build_can_id, parse_can_id
@@ -74,6 +72,4 @@ __all__ = [
     "VersionManager",
     "build_can_id",
     "parse_can_id",
-    "percentages_to_raw",
-    "raw_to_percentages",
 ]

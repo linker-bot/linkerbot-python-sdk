@@ -1,4 +1,13 @@
-"""L30 joint definitions and value models."""
+"""L30 joint definitions and value models.
+
+The public value type ``L30Angle`` follows the same convention as ``L6Angle``:
+angle values are stored as **0-100 float percentages** in J1..J17 order. Raw
+per-joint command integers (see ``L30_JOINT_SPECS`` for the documented ranges)
+are only used at the ctypes-backend boundary. Users writing high-level code
+should stay in the percentage space; drop to :meth:`L30Angle.from_raw` or
+``AngleManager.set_raw_angles`` only when the raw protocol range is needed
+(e.g. for reproducing a spec-boundary test).
+"""
 
 from __future__ import annotations
 
@@ -11,12 +20,12 @@ L30_JOINT_COUNT = 17
 
 @dataclass(frozen=True, slots=True)
 class JointSpec:
-    """Documented command range for one L30 joint.
+    """Documented raw command range for one L30 joint.
 
     Attributes:
         name: Joint name in protocol order.
-        minimum: Minimum commandable raw angle value.
-        maximum: Maximum commandable raw angle value.
+        minimum: Minimum commandable raw angle value (protocol integer).
+        maximum: Maximum commandable raw angle value (protocol integer).
     """
 
     name: str
@@ -47,76 +56,111 @@ L30_JOINT_SPECS: tuple[JointSpec, ...] = (
 
 @dataclass(frozen=True, slots=True)
 class L30Angle:
-    """Raw L30 joint angles in protocol order.
+    """L30 joint angles as 0-100 float percentages (aligned with ``L6Angle``).
 
-    Use from_list() for command targets, which must stay inside the documented
-    per-joint command ranges. Use from_sensor_values() for hardware readback,
-    where calibrated sensor values can be outside the commandable range.
+    ``values`` is always 17 floats in J1..J17 order, each in the closed
+    interval [0, 100]. 0 % maps to the joint's ``spec.minimum`` and 100 % to
+    ``spec.maximum``. For symmetric joints (``J5``/``J12``-``J14``/``J17``)
+    with negative minimums, 50 % is the neutral center.
 
-    Attributes:
-        values: 17 raw integer angle values in J1..J17 order.
+    Sensor readback may legitimately fall slightly outside [0, 100] when the
+    hardware calibrates or overshoots the documented command range; use
+    :meth:`from_sensor_raw` for that path, which relaxes the range check.
     """
 
-    values: tuple[int, ...]
+    values: tuple[float, ...]
 
     def __post_init__(self) -> None:
-        _validate_angle_values(self.values)
+        _validate_percentage_values(self.values)
 
     @classmethod
-    def from_list(cls, values: list[int] | tuple[int, ...]) -> L30Angle:
-        """Construct command-target angles with range validation.
+    def from_list(cls, values: list[float] | tuple[float, ...]) -> L30Angle:
+        """Construct from 0-100 percentage floats.
 
         Args:
-            values: 17 raw integer target angles in J1..J17 order.
+            values: 17 percentage values in J1..J17 order, each in [0, 100].
 
         Returns:
-            L30Angle suitable for angle control commands.
+            L30Angle command target.
 
         Raises:
-            ValidationError: If count, type, or per-joint command range is invalid.
+            ValidationError: If count, type, or range is invalid.
         """
+        # Pass through without coercion so a stray non-numeric (e.g. str) is
+        # rejected by the type check in ``_validate_percentage_values``
+        # rather than silently coerced by ``float(...)``.
         return cls(tuple(values))
 
     @classmethod
-    def from_sensor_values(cls, values: list[int] | tuple[int, ...]) -> L30Angle:
-        """Construct angles from hardware sensor readback.
-
-        Sensor readback is validated for count and integer type only, because
-        calibrated raw values can be outside the command range accepted by
-        set_angles().
+    def from_raw(cls, values: list[int] | tuple[int, ...]) -> L30Angle:
+        """Construct from raw per-joint command integers (strict).
 
         Args:
-            values: 17 raw integer sensor values in J1..J17 order.
+            values: 17 raw integer values in J1..J17 order. Each must lie in
+                its joint's documented ``[spec.minimum, spec.maximum]``.
 
         Returns:
-            L30Angle containing sensor readback values.
+            L30Angle with equivalent percentages.
 
         Raises:
-            ValidationError: If count or value type is invalid.
+            ValidationError: If count, type, or per-joint spec range is
+                violated.
         """
-        normalized = tuple(values)
-        _validate_sensor_angle_values(normalized)
-        angle = object.__new__(cls)
-        object.__setattr__(angle, "values", normalized)
-        return angle
+        _validate_raw_command_values(tuple(values))
+        percentages = tuple(
+            _raw_to_percentage(value, spec)
+            for value, spec in zip(values, L30_JOINT_SPECS, strict=True)
+        )
+        return cls(percentages)
 
-    def to_list(self) -> list[int]:
-        """Convert angles to a mutable list in J1..J17 order.
+    @classmethod
+    def from_sensor_raw(cls, values: list[int] | tuple[int, ...]) -> L30Angle:
+        """Construct from raw sensor readback (loose range check).
 
-        Returns:
-            List of 17 raw integer angle values.
-        """
-        return list(self.values)
-
-    def __getitem__(self, index: int) -> int:
-        """Return one angle by zero-based joint index.
+        Sensor readback may return values slightly outside the command range
+        due to calibration or overshoot. This constructor only checks that
+        the count is 17 and every value is ``int``; the resulting percentage
+        may fall outside [0, 100] on individual joints.
 
         Args:
-            index: Zero-based joint index.
+            values: 17 raw sensor integers in J1..J17 order.
 
         Returns:
-            Raw angle value for the joint.
+            L30Angle whose ``values`` may include entries outside [0, 100].
+
+        Raises:
+            ValidationError: If count or per-value type is invalid.
         """
+        _validate_sensor_raw_values(tuple(values))
+        percentages = tuple(
+            _raw_to_percentage(value, spec)
+            for value, spec in zip(values, L30_JOINT_SPECS, strict=True)
+        )
+        # Bypass __post_init__ range check for sensor readback.
+        angle = object.__new__(cls)
+        object.__setattr__(angle, "values", percentages)
+        return angle
+
+    def to_list(self) -> list[float]:
+        """Return angles as a mutable list of 0-100 floats in J1..J17 order."""
+        return list(self.values)
+
+    def to_raw(self) -> list[int]:
+        """Convert to 17 raw per-joint command integers.
+
+        Uses each joint's ``[spec.minimum, spec.maximum]`` range to map
+        percentages back to protocol integers. For values inside [0, 100] the
+        result is guaranteed to be inside the spec range; for sensor-derived
+        angles whose percentage is outside [0, 100] the raw value may be
+        outside the spec range (which is expected for sensor round-tripping).
+        """
+        return [
+            round(spec.minimum + (spec.maximum - spec.minimum) * value / 100)
+            for value, spec in zip(self.values, L30_JOINT_SPECS, strict=True)
+        ]
+
+    def __getitem__(self, index: int) -> float:
+        """Return one angle by zero-based joint index."""
         return self.values[index]
 
     def __len__(self) -> int:
@@ -168,61 +212,54 @@ def validate_u16_values(
     return normalized
 
 
-def percentages_to_raw(values: list[float] | tuple[float, ...]) -> L30Angle:
-    """Convert per-joint percentage targets to raw command angles.
+def validate_raw_command_values(
+    values: list[int] | tuple[int, ...],
+) -> tuple[int, ...]:
+    """Validate raw command integers against each joint's spec range.
 
     Args:
-        values: 17 percentage values in J1..J17 order, each between 0 and 100.
+        values: 17 raw integer values in J1..J17 order.
 
     Returns:
-        L30Angle command target using each joint's documented raw range.
+        Normalized tuple.
 
     Raises:
-        ValidationError: If count, type, or percentage range is invalid.
+        ValidationError: If count, type, or per-joint spec range is invalid.
     """
-    validate_vector_count(values, name="percentages")
-    raw_values: list[int] = []
+    _validate_raw_command_values(tuple(values))
+    return tuple(values)
+
+
+def _raw_to_percentage(value: int, spec: JointSpec) -> float:
+    return (value - spec.minimum) * 100 / (spec.maximum - spec.minimum)
+
+
+def _validate_percentage_values(values: tuple[float, ...]) -> None:
+    validate_vector_count(values, name="angles")
     for index, value in enumerate(values):
         if type(value) not in (float, int):
-            raise ValidationError(f"percentages[{index}] must be float/int")
+            raise ValidationError(f"angles[{index}] must be float/int")
         if value < 0 or value > 100:
-            raise ValidationError(f"percentages[{index}] must be between 0 and 100")
-        spec = L30_JOINT_SPECS[index]
-        raw_values.append(
-            round(spec.minimum + (spec.maximum - spec.minimum) * value / 100)
-        )
-    return L30Angle.from_list(raw_values)
-
-
-def raw_to_percentages(angle: L30Angle) -> tuple[float, ...]:
-    """Convert raw command-range angles to per-joint percentages.
-
-    Args:
-        angle: L30Angle values to convert.
-
-    Returns:
-        Tuple of 17 percentage values in J1..J17 order.
-    """
-    percentages: list[float] = []
-    for value, spec in zip(angle.values, L30_JOINT_SPECS, strict=True):
-        percentages.append((value - spec.minimum) * 100 / (spec.maximum - spec.minimum))
-    return tuple(percentages)
-
-
-def _validate_angle_values(values: tuple[int, ...]) -> None:
-    validate_vector_count(values, name="angles")
-    for index, (value, spec) in enumerate(zip(values, L30_JOINT_SPECS, strict=True)):
-        _validate_int(value, f"angles[{index}]")
-        if value < spec.minimum or value > spec.maximum:
             raise ValidationError(
-                f"angles[{index}] must be between {spec.minimum} and {spec.maximum}"
+                f"angles[{index}] must be between 0 and 100, got {value}"
             )
 
 
-def _validate_sensor_angle_values(values: tuple[int, ...]) -> None:
-    validate_vector_count(values, name="angles")
+def _validate_raw_command_values(values: tuple[int, ...]) -> None:
+    validate_vector_count(values, name="raw_angles")
+    for index, (value, spec) in enumerate(zip(values, L30_JOINT_SPECS, strict=True)):
+        _validate_int(value, f"raw_angles[{index}]")
+        if value < spec.minimum or value > spec.maximum:
+            raise ValidationError(
+                f"raw_angles[{index}] must be between "
+                f"{spec.minimum} and {spec.maximum}, got {value}"
+            )
+
+
+def _validate_sensor_raw_values(values: tuple[int, ...]) -> None:
+    validate_vector_count(values, name="sensor_angles")
     for index, value in enumerate(values):
-        _validate_int(value, f"angles[{index}]")
+        _validate_int(value, f"sensor_angles[{index}]")
 
 
 def _validate_int(value: int, name: str) -> None:

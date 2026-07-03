@@ -50,7 +50,7 @@ def test_get_snapshot_includes_all_cached_fields() -> None:
 
     snapshot = hand.get_snapshot()
 
-    assert snapshot.angle.angles.to_list() == [1] * 17
+    assert snapshot.angle.angles.to_raw() == [1] * 17
     assert snapshot.speed.speeds == (2,) * 17
     assert snapshot.current.currents == (3,) * 17
     assert snapshot.temperature.temperatures == tuple(range(17))

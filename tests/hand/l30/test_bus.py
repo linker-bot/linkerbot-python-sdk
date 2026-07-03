@@ -68,9 +68,9 @@ def test_bus_routes_reports_to_matching_node_only() -> None:
     dispatcher.inject(CANFDMessage(arbitration_id=0x00802010, data=_i16_report(2)))
     dispatcher.inject(CANFDMessage(arbitration_id=0x00802018, data=_i16_report(3)))
 
-    assert left.angle.get_snapshot().angles.to_list() == [1] * 17
-    assert right.angle.get_snapshot().angles.to_list() == [2] * 17
-    assert extra.angle.get_snapshot().angles.to_list() == [3] * 17
+    assert left.angle.get_snapshot().angles.to_raw() == [1] * 17
+    assert right.angle.get_snapshot().angles.to_raw() == [2] * 17
+    assert extra.angle.get_snapshot().angles.to_raw() == [3] * 17
 
     bus.close()
 
@@ -84,7 +84,7 @@ def test_closing_one_hand_does_not_stop_shared_dispatcher_or_other_hands() -> No
     dispatcher.inject(CANFDMessage(arbitration_id=0x00802010, data=_i16_report(2)))
 
     assert not dispatcher.stopped
-    assert second.angle.get_snapshot().angles.to_list() == [2] * 17
+    assert second.angle.get_snapshot().angles.to_raw() == [2] * 17
 
     bus.close()
 
@@ -157,8 +157,8 @@ def test_same_node_id_on_different_buses_routes_independently() -> None:
     dispatcher0.inject(CANFDMessage(arbitration_id=0x00802008, data=_i16_report(1)))
     dispatcher1.inject(CANFDMessage(arbitration_id=0x00802008, data=_i16_report(2)))
 
-    assert hand0.angle.get_snapshot().angles.to_list() == [1] * 17
-    assert hand1.angle.get_snapshot().angles.to_list() == [2] * 17
+    assert hand0.angle.get_snapshot().angles.to_raw() == [1] * 17
+    assert hand1.angle.get_snapshot().angles.to_raw() == [2] * 17
 
     bus0.close()
     bus1.close()
@@ -178,7 +178,7 @@ def test_closing_one_bus_does_not_close_another_bus() -> None:
     assert hand0.is_closed()
     assert not hand1.is_closed()
     assert not dispatcher1.stopped
-    assert hand1.angle.get_snapshot().angles.to_list() == [2] * 17
+    assert hand1.angle.get_snapshot().angles.to_raw() == [2] * 17
 
     bus1.close()
 

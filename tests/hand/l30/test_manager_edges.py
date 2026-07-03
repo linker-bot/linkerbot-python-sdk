@@ -218,7 +218,7 @@ def test_client_serializes_same_response_id_requests() -> None:
 
     threads = [
         threading.Thread(
-            target=lambda: results.append(angle.get_blocking().angles.to_list())
+            target=lambda: results.append(angle.get_blocking().angles.to_raw())
         )
         for _ in range(2)
     ]
@@ -328,3 +328,101 @@ def _capture_error(callback, errors: list[Exception]) -> None:
         callback()
     except Exception as error:
         errors.append(error)
+
+
+def test_tactile_read_does_not_block_normal_request() -> None:
+    """fix#141: tactile uses _tactile_lock; normal requests use _transaction_lock.
+
+    Previously both took the same `_transaction_lock`, so a 50 ms 5-finger
+    tactile sweep blocked every enable/disable/get_blocking. After the split,
+    a tactile read in flight must not stop a control ACK from being sent.
+    """
+    dispatcher = FakeDispatcher()
+    client = L30Client(dispatcher, node_id=1, host_id=0)
+    force_sensor = ForceSensorManager(client)
+    control = ControlManager(client)
+
+    tactile_done = threading.Event()
+
+    def run_tactile() -> None:
+        try:
+            force_sensor.get_finger(Finger.THUMB, timeout_ms=5000)
+        finally:
+            tactile_done.set()
+
+    tactile_thread = threading.Thread(target=run_tactile)
+    tactile_thread.start()
+    # Wait for tactile request to be in flight (sent but not yet responded).
+    _wait_for_sent(dispatcher, 1)
+    assert not tactile_done.is_set()
+
+    # Fire enable from another thread; before the split this would block on
+    # the same lock and never send until tactile completed.
+    enable_done = threading.Event()
+
+    def run_enable() -> None:
+        try:
+            control.enable(timeout_ms=5000)
+        finally:
+            enable_done.set()
+
+    enable_thread = threading.Thread(target=run_enable)
+    enable_thread.start()
+    # enable must reach dispatcher.send promptly even though tactile is
+    # still mid-transaction.
+    _wait_for_sent(dispatcher, 2)
+    # Now resolve enable first to prove it ran fully under tactile-in-flight.
+    _response(dispatcher, 0x0220E008, protocol.ack_payload())
+    enable_thread.join(timeout=2)
+    assert enable_done.is_set()
+    # Then finish tactile.
+    _inject_tactile(dispatcher, 0x00402008)
+    tactile_thread.join(timeout=2)
+    assert tactile_done.is_set()
+
+
+def test_client_uses_subscribe_filter_when_available() -> None:
+    """Filter path: L30Client must prefer ``subscribe_filter`` if the
+    dispatcher exposes it, registering a (predicate, callback) pair so the
+    bus does not fan out every frame to every hand on the bus.
+    """
+    dispatcher = FakeDispatcher()
+    _ = L30Client(dispatcher, node_id=1, host_id=0)
+    assert len(dispatcher.filtered_subscribers) == 1
+    assert dispatcher.subscribers == []
+
+    # The predicate must accept frames whose dst_id/src_id match the client.
+    predicate, _callback = dispatcher.filtered_subscribers[0]
+    matching = CANFDMessage(arbitration_id=0x00A02008, data=bytes(3))
+    non_matching = CANFDMessage(arbitration_id=0x00A02018, data=bytes(3))
+    assert predicate(matching)
+    assert not predicate(non_matching)
+
+
+def test_client_falls_back_to_subscribe_without_filter() -> None:
+    """A dispatcher without ``subscribe_filter`` must still receive the
+    plain ``subscribe`` registration so legacy code paths keep working.
+    """
+
+    class LegacyDispatcher:
+        def __init__(self) -> None:
+            self.subscribed: list = []
+            self.sent: list = []
+            self.stopped = False
+
+        def send(self, message):  # noqa: D401, ANN001 - test scaffolding
+            self.sent.append(message)
+
+        def subscribe(self, callback):  # noqa: ANN001 - test scaffolding
+            self.subscribed.append(callback)
+
+        def unsubscribe(self, callback):  # noqa: ANN001 - test scaffolding
+            if callback in self.subscribed:
+                self.subscribed.remove(callback)
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    dispatcher = LegacyDispatcher()
+    _ = L30Client(dispatcher, node_id=1, host_id=0)
+    assert len(dispatcher.subscribed) == 1

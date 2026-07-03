@@ -84,12 +84,29 @@ class L30Client:
         self._node_id = node_id
         self._host_id = host_id
         self._lock = threading.Lock()
+        # Two separate transaction locks so a tactile read no longer freezes
+        # normal queries/ACKs and vice versa. Tactile reads still serialize
+        # against other tactile reads (protocol §11: multi-frame tactile
+        # transactions cannot be interleaved within their 10 ms reassembly
+        # window). Same-response-id normal requests still serialize via
+        # ``_transaction_lock`` so deque ordering remains a function of
+        # call order, not interleaved response arrivals.
         self._transaction_lock = threading.Lock()
+        self._tactile_lock = threading.Lock()
         self._pending: dict[int, _ResponseWaiter] = {}
         self._tactile_pending: dict[int, _TactileWaiter] = {}
         self._report_handlers: dict[int, list[Callable[[bytes], None]]] = {}
         self._closed = False
-        self._dispatcher.subscribe(self._on_message)
+        # Prefer the dispatcher's O(1) filtered subscription when present
+        # (CANFDMessageDispatcher gained `subscribe_filter` in fix#141 to
+        # avoid fan-out across every L30Client on a shared bus). Fall back
+        # to the broadcast subscribe contract for older dispatchers and the
+        # test FakeDispatcher.
+        subscribe_filter = getattr(dispatcher, "subscribe_filter", None)
+        if subscribe_filter is not None:
+            subscribe_filter(self._frame_matches_client, self._on_message)
+        else:
+            self._dispatcher.subscribe(self._on_message)
 
     @property
     def node_id(self) -> int:
@@ -199,7 +216,7 @@ class L30Client:
             TimeoutError: If both tactile frames do not arrive before the timeout.
             ProtocolError: If transaction ordering or payload validation fails.
         """
-        with self._transaction_lock:
+        with self._tactile_lock:
             self._validate_timeout(timeout_ms)
             self._ensure_open()
             request = self._message(
@@ -344,6 +361,23 @@ class L30Client:
         if self._handle_tactile(message):
             return
         self._handle_report(frame_id, message.data)
+
+    def _frame_matches_client(self, message: CANFDMessage) -> bool:
+        """Predicate used by ``subscribe_filter``.
+
+        Cheap pre-filter so the dispatcher only dispatches frames whose
+        ``dst_id``/``src_id`` match this client. On a shared bus with N
+        hands, this turns the per-frame fan-out from O(N) into O(1).
+        """
+        if not message.is_extended_id:
+            return False
+        try:
+            frame_id = protocol.parse_can_id(message.arbitration_id)
+        except ValidationError:
+            return False
+        return (
+            frame_id.dst_id == self._host_id and frame_id.src_id == self._node_id
+        )
 
     def _handle_pending(self, message: CANFDMessage) -> bool:
         # Normal read responses and write ACKs are matched by exact response ID.
