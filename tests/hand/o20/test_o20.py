@@ -150,7 +150,7 @@ def test_stream_emits_angle_event_after_blocking_read() -> None:
         event = stream.get(timeout=1)
 
         assert isinstance(event, AngleEvent)
-        assert event.data.angles.to_list() == list(range(1, 17))
+        assert event.data.angles.to_raw() == list(range(1, 17))
 
 
 def test_start_polling_rejects_invalid_interval() -> None:

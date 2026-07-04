@@ -79,8 +79,11 @@ O20_TACTILE_COLUMNS = 6
 O20_RESERVED_ID_MASK = 0x00000FFF
 O20_DEVICE_ID_MAX = 0xFF
 O20_REGISTER_MAX = 0xFF
-O20_HAND_TYPE_LEFT = 0
+# Real O20 firmware encodes the hand-side byte inside DeviceInfo using the
+# same value as the CAN device_id: 1 for the right hand, 2 for the left
+# hand. This differs from the doc's earlier draft that suggested 0/1.
 O20_HAND_TYPE_RIGHT = 1
+O20_HAND_TYPE_LEFT = 2
 
 O20_FAULT_NONE = 0
 O20_FAULT_OVER_TEMPERATURE = 1

@@ -17,12 +17,12 @@ from tests.hand.o20.fakes import FakeDispatcher
 pytestmark = [pytest.mark.o20, pytest.mark.canfd]
 
 
-def test_angle_set_angles_writes_target_pos_with_little_endian_payload() -> None:
+def test_angle_set_raw_angles_writes_target_pos_with_little_endian_payload() -> None:
     dispatcher = FakeDispatcher()
     client = O20Client(dispatcher, device_id=0x01)
     manager = AngleManager(client)
 
-    manager.set_angles([1] * protocol.O20_JOINT_COUNT)
+    manager.set_raw_angles([1] * protocol.O20_JOINT_COUNT)
 
     sent = dispatcher.sent[0]
     assert sent.arbitration_id == 0x0020D000
@@ -40,16 +40,19 @@ def test_angle_get_blocking_decodes_first_sixteen_motor_slots_only() -> None:
 
     data = manager.get_blocking(timeout_ms=100)
 
-    assert data.angles.to_list() == list(range(1, 17))
-    assert manager.get_snapshot().angles.to_list() == list(range(1, 17))
+    # Sensor readback stores percentages internally; compare via to_raw() to
+    # keep the "raw N in → raw N out" assertion without recomputing per-joint
+    # percentage values.
+    assert data.angles.to_raw() == list(range(1, 17))
+    assert manager.get_snapshot().angles.to_raw() == list(range(1, 17))
 
 
-def test_angle_set_percentages_uses_per_joint_minimum_and_maximum() -> None:
+def test_angle_set_angles_uses_per_joint_minimum_and_maximum() -> None:
     dispatcher = FakeDispatcher()
     client = O20Client(dispatcher, device_id=0x01)
     manager = AngleManager(client)
 
-    manager.set_percentages([0.0] * protocol.O20_JOINT_COUNT)
+    manager.set_angles([0.0] * protocol.O20_JOINT_COUNT)
 
     expected = [spec.minimum for spec in O20_JOINT_SPECS]
     payload = dispatcher.sent[0].data

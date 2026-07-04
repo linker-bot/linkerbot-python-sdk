@@ -24,8 +24,6 @@ from .joints import (
     O20_JOINT_COUNT,
     O20_JOINT_SPECS,
     O20Angle,
-    percentages_to_raw,
-    raw_to_percentages,
 )
 from .o20 import O20
 from .protocol import (
@@ -80,6 +78,4 @@ __all__ = [
     "VersionManager",
     "build_can_id",
     "parse_can_id",
-    "percentages_to_raw",
-    "raw_to_percentages",
 ]

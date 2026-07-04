@@ -6,7 +6,7 @@ The O20 hand exposes a 62-byte DeviceInfo register (``0x00``) that combines:
 * serial number (20 bytes ASCII)
 * software version (10 bytes ASCII)
 * hardware version (10 bytes ASCII)
-* hand type byte (0 = left, 1 = right)
+* hand type byte (1 = right, 2 = left — matches the CAN ``device_id``)
 * unique identifier (11 bytes)
 
 The total length is binding per the protocol's ``uint8_t[62]`` declaration; the

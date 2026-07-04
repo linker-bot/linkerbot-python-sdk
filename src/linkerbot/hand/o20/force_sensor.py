@@ -203,8 +203,12 @@ class ForceSensorManager:
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
         register_data1, register_data2 = _FINGER_REGISTERS[finger]
-        data1 = self._client.read(register=register_data1, timeout_ms=timeout_ms)
-        data2 = self._client.read(register=register_data2, timeout_ms=timeout_ms)
+        # Hold the tactile transaction lock across both register reads so
+        # a concurrent finger read cannot interleave and yield a
+        # cross-sampled (data1, data2) pair.
+        with self._client.tactile_transaction():
+            data1 = self._client.read(register=register_data1, timeout_ms=timeout_ms)
+            data2 = self._client.read(register=register_data2, timeout_ms=timeout_ms)
         online, matrix = protocol.assemble_tactile_payload(data1, data2)
         values = (
             np.frombuffer(matrix, dtype=np.uint8)

@@ -120,3 +120,56 @@ def test_close_wakes_pending_readers_with_state_error() -> None:
 
     assert len(result) == 1
     assert isinstance(result[0], StateError)
+
+
+def test_client_uses_subscribe_filter_when_available() -> None:
+    """Filter path: O20Client must prefer ``subscribe_filter`` if the
+    dispatcher exposes it, so multi-hand buses don't fan out every frame to
+    every client just to have each drop non-matching device_ids in Python.
+    """
+    dispatcher = FakeDispatcher()
+    _ = O20Client(dispatcher, device_id=0x01)
+    assert len(dispatcher.filtered_subscribers) == 1
+    assert dispatcher.subscribers == []
+
+    predicate, _callback = dispatcher.filtered_subscribers[0]
+    matching = CANFDMessage(
+        arbitration_id=protocol.build_can_id(device_id=0x01, register=0, write=False),
+        data=b"",
+    )
+    non_matching = CANFDMessage(
+        arbitration_id=protocol.build_can_id(device_id=0x02, register=0, write=False),
+        data=b"",
+    )
+    assert predicate(matching)
+    assert not predicate(non_matching)
+
+
+def test_client_falls_back_to_subscribe_without_filter() -> None:
+    """A dispatcher without ``subscribe_filter`` must still receive the
+    plain ``subscribe`` registration so legacy or non-CANFDMessageDispatcher
+    transports keep working.
+    """
+
+    class LegacyDispatcher:
+        def __init__(self) -> None:
+            self.subscribed: list = []
+            self.sent: list = []
+            self.stopped = False
+
+        def send(self, message):  # noqa: ANN001 - test scaffolding
+            self.sent.append(message)
+
+        def subscribe(self, callback):  # noqa: ANN001 - test scaffolding
+            self.subscribed.append(callback)
+
+        def unsubscribe(self, callback):  # noqa: ANN001 - test scaffolding
+            if callback in self.subscribed:
+                self.subscribed.remove(callback)
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    dispatcher = LegacyDispatcher()
+    _ = O20Client(dispatcher, device_id=0x01)
+    assert len(dispatcher.subscribed) == 1

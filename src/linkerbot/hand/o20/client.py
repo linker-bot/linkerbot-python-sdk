@@ -11,7 +11,8 @@ cannot accidentally unblock an unrelated read on the same register.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -86,9 +87,24 @@ class O20Client:
         self._frame_type = frame_type
         self._lock = threading.Lock()
         self._transaction_lock = threading.Lock()
+        # Guards multi-register tactile transactions. O20 splits each finger's
+        # tactile payload across two independent registers (data1 + data2); if
+        # two threads interleave their reads the (data1, data2) pair on each
+        # thread can end up being cross-sampled from different acquisitions,
+        # producing corrupt matrices. force_sensor uses tactile_transaction()
+        # to hold this lock across the paired reads.
+        self._tactile_lock = threading.Lock()
         self._pending: dict[tuple[int, int], _ResponseWaiter] = {}
         self._closed = False
-        self._dispatcher.subscribe(self._on_message)
+        # Prefer the dispatcher's O(1) filtered subscription when present
+        # (CANFDMessageDispatcher.subscribe_filter added in fix#141 to avoid
+        # fan-out across every client on a shared bus). Fall back to the
+        # broadcast subscribe contract for older dispatchers and test fakes.
+        subscribe_filter = getattr(dispatcher, "subscribe_filter", None)
+        if subscribe_filter is not None:
+            subscribe_filter(self._frame_matches_client, self._on_message)
+        else:
+            self._dispatcher.subscribe(self._on_message)
 
     @property
     def device_id(self) -> int:
@@ -178,6 +194,27 @@ class O20Client:
             waiter.error = error
             waiter.event.set()
 
+    @contextmanager
+    def tactile_transaction(self) -> Iterator[None]:
+        """Serialize multi-register tactile reads so pairs stay atomic.
+
+        O20 tactile payloads are split across two consecutive registers per
+        finger. Without this lock, two threads reading tactile data
+        concurrently may interleave their register reads, yielding
+        cross-sampled (data1, data2) pairs. Wrap the paired reads in a
+        ``with client.tactile_transaction():`` block to hold the tactile
+        lock for the whole transaction:
+
+        >>> with client.tactile_transaction():
+        ...     data1 = client.read(register=REG_DATA1, timeout_ms=100)
+        ...     data2 = client.read(register=REG_DATA2, timeout_ms=100)
+
+        Normal (non-tactile) reads and all writes are unaffected — this lock
+        is orthogonal to ``_transaction_lock`` and ``dispatcher._tx_lock``.
+        """
+        with self._tactile_lock:
+            yield
+
     def _message(
         self, *, register: int, write: bool, payload: bytes, dlc: int | None
     ) -> CANFDMessage:
@@ -210,6 +247,21 @@ class O20Client:
             return
         waiter.data = message.data
         waiter.event.set()
+
+    def _frame_matches_client(self, message: CANFDMessage) -> bool:
+        """Predicate for ``dispatcher.subscribe_filter``.
+
+        Cheap pre-filter so the dispatcher only routes frames whose
+        ``device_id`` matches this client. On a shared bus with N O20 hands,
+        this turns the per-frame fan-out from O(N) into O(1).
+        """
+        if not message.is_extended_id:
+            return False
+        try:
+            frame_id = protocol.parse_can_id(message.arbitration_id)
+        except ValidationError:
+            return False
+        return frame_id.device_id == self._device_id
 
     def _ensure_open(self) -> None:
         if self._closed:
