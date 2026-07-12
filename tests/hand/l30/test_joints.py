@@ -12,14 +12,29 @@ from linkerbot.hand.l30.joints import (
 pytestmark = [pytest.mark.l30, pytest.mark.canfd]
 
 
-def test_joint_specs_match_l30_v2_ranges() -> None:
+def test_joint_specs_match_l30_v6_left_hand_ranges() -> None:
     assert len(L30_JOINT_SPECS) == L30_JOINT_COUNT
-    assert L30_JOINT_SPECS[0].minimum == 0
-    assert L30_JOINT_SPECS[0].maximum == 880
-    assert L30_JOINT_SPECS[4].minimum == -200
-    assert L30_JOINT_SPECS[4].maximum == 200
-    assert L30_JOINT_SPECS[16].minimum == -900
-    assert L30_JOINT_SPECS[16].maximum == 900
+    assert tuple(
+        (spec.name, spec.minimum, spec.maximum) for spec in L30_JOINT_SPECS
+    ) == (
+        ("j1", 0, 900),
+        ("j2", 0, 1200),
+        ("j3", 0, 900),
+        ("j4", 0, 800),
+        ("j5", -200, 200),
+        ("j6", 0, 1500),
+        ("j7", 0, 1600),
+        ("j8", 0, 1600),
+        ("j9", 0, 1500),
+        ("j10", 0, 1600),
+        ("j11", 0, 1500),
+        ("j12", -200, 200),
+        ("j13", -200, 200),
+        ("j14", -200, 200),
+        ("j15", 0, 1600),
+        ("j16", 0, 1500),
+        ("j17", -1000, 1000),
+    )
 
 
 def test_l30_angle_stores_percentages_and_round_trips() -> None:
@@ -78,9 +93,9 @@ def test_l30_angle_from_raw_round_trips_command_range() -> None:
 
 def test_l30_angle_from_raw_rejects_out_of_spec_range() -> None:
     raws = [spec.minimum for spec in L30_JOINT_SPECS]
-    raws[0] = 881  # J1 max is 880
+    raws[0] = 901  # J1 max is 900
 
-    with pytest.raises(ValidationError, match="880"):
+    with pytest.raises(ValidationError, match="900"):
         L30Angle.from_raw(raws)
 
 
@@ -124,6 +139,6 @@ def test_validate_raw_command_values_matches_joint_specs() -> None:
     assert validated == tuple(spec.maximum for spec in L30_JOINT_SPECS)
 
     bad = [spec.maximum for spec in L30_JOINT_SPECS]
-    bad[0] = 881
-    with pytest.raises(ValidationError, match="880"):
+    bad[0] = 901
+    with pytest.raises(ValidationError, match="900"):
         validate_raw_command_values(bad)

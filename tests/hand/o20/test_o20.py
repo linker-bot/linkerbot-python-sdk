@@ -34,9 +34,70 @@ def test_o20_explicit_device_id_overrides_side() -> None:
         assert hand.device_id == 0x55
 
 
+def test_o20_defaults_to_can_fd_without_bitrate_switching() -> None:
+    dispatcher = FakeDispatcher()
+
+    with O20(dispatcher=dispatcher) as hand:
+        hand.angle.set_angles([0.0] * 16)
+
+    assert dispatcher.sent[-1].frame_type == 0x04
+
+
 def test_o20_rejects_invalid_side() -> None:
     with pytest.raises(ValidationError):
         O20(side="middle", dispatcher=FakeDispatcher())  # type: ignore[arg-type]
+
+
+def test_o20_rejects_invalid_interface_type() -> None:
+    with pytest.raises(ValidationError, match="interface_type"):
+        O20(
+            interface_type="usbcan",  # type: ignore[arg-type]
+            dispatcher=FakeDispatcher(),
+        )
+
+
+def test_o20_socketcan_requires_channel() -> None:
+    with pytest.raises(ValidationError, match="socketcan_channel"):
+        O20(interface_type="socketcan")
+
+
+def test_o20_socketcan_routes_to_socketcan_backend(monkeypatch) -> None:
+    """interface_type='socketcan' must construct a SocketCANFDBackend with the
+    user-supplied channel/bitrates and pass it through CANFDMessageDispatcher."""
+    captured: dict[str, object] = {}
+
+    class _StubBackend:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def send(self, message, timeout_ms=10):
+            pass
+
+        def receive(self, max_frames=64, timeout_ms=10):
+            return []
+
+        def close(self):
+            pass
+
+    import linkerbot.hand.o20.o20 as o20_module
+
+    monkeypatch.setattr(o20_module, "SocketCANFDBackend", _StubBackend)
+
+    with O20(
+        interface_type="socketcan",
+        socketcan_channel="can7",
+        bitrate=2_000_000,
+        data_bitrate=4_000_000,
+        auto_reconfigure=True,
+    ) as hand:
+        assert not hand.is_closed()
+
+    assert captured == {
+        "channel": "can7",
+        "bitrate": 2_000_000,
+        "data_bitrate": 4_000_000,
+        "auto_reconfigure": True,
+    }
 
 
 def test_o20_close_is_idempotent_and_operations_after_close_fail() -> None:

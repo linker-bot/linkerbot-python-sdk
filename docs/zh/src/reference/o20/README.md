@@ -2,7 +2,9 @@
 
 O20 是基于 CANFD 的 16 自由度灵巧手。SDK 使用 `device_id` 寻址设备,支持单只手、同一 CANFD 总线上的多只手(左右手共享一条 bus)、以及多个 CANFD 模块/通道上的多只手。
 
-## 准备工作
+SDK 支持两种 CAN FD 连接方式：默认使用厂商 `libcanbus.so` / `HCanbus.dll`，Linux 也可以通过 python-can 使用 SocketCAN。SocketCAN 的系统配置与连接示例见 [CAN FD 总线（L30 / O20）](../canfd.md)。
+
+## 厂商动态库后端准备工作
 
 ### 准备好 libcanbus.so 文件
 
@@ -77,6 +79,21 @@ with O20(side="right", library_path="/home/linkerhand/code/HK/libcanbus.so") as 
 export LINKERBOT_CANFD_LIB=/home/linkerhand/code/HK/libcanbus.so
 ```
 
+Linux SocketCAN 快速连接：
+
+```python
+from linkerbot.hand.o20 import O20
+
+with O20(
+    side="right",
+    interface_type="socketcan",
+    socketcan_channel="can0",
+) as hand:
+    print(hand.version.get_device_info(timeout_ms=1000))
+```
+
+运行前需要先把 `can0` 配置为 CAN FD。O20 默认使用 `frame_type=0x04`，不启用 BRS；完整说明见 [CAN FD 总线](../canfd.md)。
+
 ## 构造参数
 
 ```python
@@ -102,6 +119,11 @@ hand.close()
 | `config` | `CANFDConfigOptions \| None` | CANFD 波特率等配置 |
 | `frame_type` | `int \| None` | CANFD FrameType 字节;O20 固件期望 `0x04`(纯 CANFD 无 FDBRS) |
 | `dispatcher` | `O20DispatcherLike \| None` | 测试或自定义 CANFD 后端注入用;多手共享一条 bus 时也用它 |
+| `interface_type` | `"ctypes" \| "socketcan"` | CAN FD 后端；默认 `"ctypes"` |
+| `socketcan_channel` | `str \| None` | SocketCAN 接口名，例如 `"can0"` |
+| `bitrate` | `int` | SocketCAN 仲裁速率，默认 `1_000_000` |
+| `data_bitrate` | `int` | SocketCAN 数据段配置值，默认 `5_000_000` |
+| `auto_reconfigure` | `bool` | 是否允许 SDK 重新配置 SocketCAN 接口，默认 `False` |
 
 推荐用 `with O20(...) as hand:`,退出代码块时会自动释放连接资源。
 

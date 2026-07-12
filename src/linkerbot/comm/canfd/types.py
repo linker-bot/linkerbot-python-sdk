@@ -1,6 +1,7 @@
 """CANFD message types and DLC conversion helpers."""
 
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 from linkerbot.exceptions import ValidationError
 
@@ -146,3 +147,35 @@ def _validate_id(arbitration_id: int, max_value: int, name: str) -> None:
 def _validate_byte(value: int, name: str) -> None:
     if value < 0 or value > _BYTE_MAX:
         raise ValidationError(f"{name} must fit in one byte")
+
+
+@runtime_checkable
+class CANFDBackend(Protocol):
+    """Minimal device interface required by ``CANFDMessageDispatcher``.
+
+    The dispatcher does not care which library actually moves bytes on the
+    wire; it just needs something that can send a frame, receive a batch of
+    frames, and clean up. Concrete implementations in this package:
+
+    - ``CANFDInterface`` (``ctypes_backend.py``) — vendor ``libcanbus.so`` /
+      ``HCanbus.dll``, the original backend used by L30 and O20.
+    - ``SocketCANFDBackend`` (``socketcan_backend.py``) — Linux SocketCAN in
+      CAN FD mode via python-can.
+
+    Tests can pass a hand-rolled fake satisfying this protocol; isinstance
+    checks work because the protocol is ``@runtime_checkable``.
+    """
+
+    def send(self, message: "CANFDMessage", timeout_ms: int = 10) -> None:
+        """Transmit a single frame, blocking up to ``timeout_ms``."""
+        ...
+
+    def receive(
+        self, max_frames: int = 64, timeout_ms: int = 10
+    ) -> list["CANFDMessage"]:
+        """Receive up to ``max_frames`` frames, returning empty on timeout."""
+        ...
+
+    def close(self) -> None:
+        """Release the underlying device. Idempotent."""
+        ...

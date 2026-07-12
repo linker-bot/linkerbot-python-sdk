@@ -10,7 +10,7 @@ from pathlib import Path
 from linkerbot.exceptions import CANError
 
 from .ctypes_backend import CANFDInterface
-from .types import CANFDConfigOptions, CANFDMessage
+from .types import CANFDBackend, CANFDConfigOptions, CANFDMessage
 
 DEFAULT_MAX_CONSECUTIVE_ERRORS = 10
 RECEIVE_BATCH_SIZE = 64
@@ -49,10 +49,17 @@ class CANFDMessageDispatcher:
         config: CANFDConfigOptions | None = None,
         on_bus_error: Callable[[Exception], None] | None = None,
         max_consecutive_errors: int = DEFAULT_MAX_CONSECUTIVE_ERRORS,
-        interface: CANFDInterface | None = None,
+        interface: CANFDBackend | None = None,
     ) -> None:
-        """Initialize dispatcher threads for one CANFD interface."""
-        self._interface = interface or CANFDInterface(
+        """Initialize dispatcher threads for one CANFD interface.
+
+        ``interface`` accepts any object satisfying ``CANFDBackend`` (the
+        ctypes ``CANFDInterface`` and the new SocketCAN FD backend both do).
+        When omitted, the dispatcher constructs a vendor ``CANFDInterface``
+        using ``device_index`` / ``channel_index`` / ``library_path`` / ``config``,
+        preserving the original behaviour.
+        """
+        self._interface: CANFDBackend = interface or CANFDInterface(
             device_index=device_index,
             channel_index=channel_index,
             library_path=library_path,
@@ -88,8 +95,8 @@ class CANFDMessageDispatcher:
         self._send_thread.start()
 
     @property
-    def interface(self) -> CANFDInterface:
-        """CANFD interface this dispatcher is bound to."""
+    def interface(self) -> CANFDBackend:
+        """CANFD backend this dispatcher is bound to."""
         return self._interface
 
     def _handle_bus_error(self, error: Exception) -> None:

@@ -14,7 +14,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-from linkerbot.comm.canfd import CANFDConfigOptions, CANFDMessageDispatcher
+from linkerbot.comm.canfd import (
+    CANFDConfigOptions,
+    CANFDMessageDispatcher,
+    SocketCANFDBackend,
+)
 from linkerbot.exceptions import CANError, LinkerbotError, StateError, ValidationError
 from linkerbot.queue import IterableQueue
 
@@ -44,6 +48,7 @@ from .version import VersionManager
 _DEFAULT_POLL_INTERVALS: dict[SensorSource, float] = {
     SensorSource.ANGLE: 1 / 30,
 }
+_DEFAULT_FRAME_TYPE = 0x04
 _THREAD_JOIN_TIMEOUT_S = 2.0
 
 
@@ -52,11 +57,17 @@ class O20:
 
     The O20 class owns the CANFD dispatcher by default and exposes subsystem
     managers for angle, speed, torque, current, temperature, fault, tactile
-    force sensors, and DeviceInfo. It can also accept an injected dispatcher
-    for tests or alternate CANFD backends.
+    force sensors, and DeviceInfo. Two CANFD backends are supported:
+
+    - ``interface_type="ctypes"`` (default): uses the vendor
+      ``libcanbus.so`` / ``HCanbus.dll`` adapter. Works on Linux and Windows.
+    - ``interface_type="socketcan"``: uses Linux SocketCAN in CAN FD mode via
+      python-can. Requires the link to be configured via ``ip link``.
 
     Use O20 as a context manager so the dispatcher and background workers are
-    stopped reliably:
+    stopped reliably.
+
+    Vendor adapter (default):
 
     ```python
     with O20(side="right", library_path="/path/to/libcanbus.so") as hand:
@@ -66,6 +77,22 @@ class O20:
         hand.angle.set_angles([30] * 16)   # 0-100 percentages, like L6/L30
         print(hand.angle.get_blocking())
     ```
+
+    SocketCAN FD on Linux. Bring the link up first, for example:
+
+    ```bash
+    sudo ip link set can0 up type can bitrate 1000000 dbitrate 5000000 fd on
+    ```
+
+    Then:
+
+    ```python
+    with O20(side="right", interface_type="socketcan", socketcan_channel="can0") as hand:
+        print(hand.version.get_device_info())
+    ```
+
+    Pass ``auto_reconfigure=True`` to let the SDK run ``ip link`` itself when
+    the link is missing or has mismatched bitrates (requires CAP_NET_ADMIN).
 
     Attributes:
         angle: Manager for joint angle commands and angle sensor data.
@@ -86,8 +113,13 @@ class O20:
         channel: int = 0,
         library_path: str | Path | None = None,
         config: CANFDConfigOptions | None = None,
-        frame_type: int | None = None,
+        frame_type: int | None = _DEFAULT_FRAME_TYPE,
         dispatcher: O20DispatcherLike | None = None,
+        interface_type: Literal["ctypes", "socketcan"] = "ctypes",
+        socketcan_channel: str | None = None,
+        bitrate: int = 1_000_000,
+        data_bitrate: int = 5_000_000,
+        auto_reconfigure: bool = False,
     ) -> None:
         """Initialize the O20 hand interface.
 
@@ -97,21 +129,45 @@ class O20:
             device_id: Optional explicit O20 device ID. When set, takes
                 precedence over ``side``. Defaults to ``0x01`` for the right
                 hand and ``0x02`` for the left hand.
-            device: Vendor CANFD adapter device index.
-            channel: Vendor CANFD adapter channel index.
-            library_path: Path to the vendor CANFD dynamic library. If omitted,
-                the CANFD backend uses its default library lookup order.
-            config: CANFD adapter configuration. If omitted, the CANFD backend
-                uses its default nominal/data baud and frame settings.
+            device: Vendor CANFD adapter device index. Used when
+                ``interface_type="ctypes"``.
+            channel: Vendor CANFD adapter channel index. Used when
+                ``interface_type="ctypes"``.
+            library_path: Path to the vendor CANFD dynamic library. Used when
+                ``interface_type="ctypes"``. If omitted, the CANFD backend uses
+                its default library lookup order.
+            config: CANFD adapter configuration. Used when
+                ``interface_type="ctypes"``. If omitted, the CANFD backend uses
+                its default nominal/data baud and frame settings.
             frame_type: Optional CANFD frame type override applied to every
-                outgoing frame. The O20 hand uses 0x04 by default; the SDK
-                forwards this value to the backend when supplied.
+                outgoing frame. The O20 hand defaults to 0x04 (CAN FD without
+                bit-rate switching); SocketCAN maps 0x04/0x0C to python-can's
+                ``bitrate_switch`` flag.
             dispatcher: Optional dispatcher-like transport. Pass this for tests
-                or alternate CANFD transports while keeping O20 protocol logic
-                unchanged.
+                or alternate CANFD transports; bypasses every other transport
+                argument.
+            interface_type: ``"ctypes"`` (default) uses the vendor
+                ``libcanbus.so`` / ``HCanbus.dll`` backend. ``"socketcan"``
+                uses Linux SocketCAN in CAN FD mode (``socketcan_channel``
+                required).
+            socketcan_channel: SocketCAN interface name (``"can0"``…).
+                Required when ``interface_type="socketcan"``; ignored
+                otherwise. The existing ``channel`` parameter is kept as the
+                ctypes vendor channel index, so SocketCAN gets its own name.
+            bitrate: Nominal bitrate for the SocketCAN backend, defaults to
+                1 Mbit/s. Ignored when ``interface_type="ctypes"``.
+            data_bitrate: Data-phase bitrate for the SocketCAN backend,
+                defaults to 5 Mbit/s. Ignored when ``interface_type="ctypes"``.
+            auto_reconfigure: When True with ``interface_type="socketcan"``,
+                the SDK runs ``ip link set ... down/up`` itself if the link is
+                missing or has mismatched bitrates. Requires
+                ``CAP_NET_ADMIN``. Defaults to False (the SDK only inspects
+                the link and reports a copyable ``ip link`` command on
+                mismatch). Ignored when ``interface_type="ctypes"``.
 
         Raises:
-            ValidationError: If side, device_id, device, or channel is invalid.
+            ValidationError: If side, device_id, device, channel, or
+                ``interface_type`` is invalid.
             CANError: If the CANFD backend cannot be initialized.
         """
         if device_id is None:
@@ -125,6 +181,10 @@ class O20:
             raise ValidationError("channel must be int")
         if channel < 0:
             raise ValidationError("channel must be non-negative")
+        if interface_type not in ("ctypes", "socketcan"):
+            raise ValidationError(
+                f"interface_type must be 'ctypes' or 'socketcan', got {interface_type!r}"
+            )
 
         # Initialize all simple fields up front so that close() — which may be
         # invoked very early via the on_bus_error callback once the dispatcher
@@ -141,12 +201,16 @@ class O20:
         self._polling_senders: dict[SensorSource, Callable[[], None]] = {}
 
         if dispatcher is None:
-            dispatcher = CANFDMessageDispatcher(
-                device_index=device,
-                channel_index=channel,
+            dispatcher = self._build_dispatcher(
+                interface_type=interface_type,
+                device=device,
+                channel=channel,
                 library_path=library_path,
                 config=config,
-                on_bus_error=self._on_bus_error,
+                socketcan_channel=socketcan_channel,
+                bitrate=bitrate,
+                data_bitrate=data_bitrate,
+                auto_reconfigure=auto_reconfigure,
             )
         self._dispatcher = dispatcher
         try:
@@ -374,6 +438,42 @@ class O20:
     def _on_bus_error(self, error: Exception) -> None:
         self._bus_error = error
         self.close()
+
+    def _build_dispatcher(
+        self,
+        *,
+        interface_type: str,
+        device: int,
+        channel: int,
+        library_path: str | Path | None,
+        config: CANFDConfigOptions | None,
+        socketcan_channel: str | None,
+        bitrate: int,
+        data_bitrate: int,
+        auto_reconfigure: bool,
+    ) -> CANFDMessageDispatcher:
+        if interface_type == "ctypes":
+            return CANFDMessageDispatcher(
+                device_index=device,
+                channel_index=channel,
+                library_path=library_path,
+                config=config,
+                on_bus_error=self._on_bus_error,
+            )
+        if socketcan_channel is None:
+            raise ValidationError(
+                "interface_type='socketcan' requires "
+                "socketcan_channel (e.g. socketcan_channel='can0')"
+            )
+        backend = SocketCANFDBackend(
+            channel=socketcan_channel,
+            bitrate=bitrate,
+            data_bitrate=data_bitrate,
+            auto_reconfigure=auto_reconfigure,
+        )
+        return CANFDMessageDispatcher(
+            interface=backend, on_bus_error=self._on_bus_error
+        )
 
     def _ensure_open(self) -> None:
         if self._bus_error is not None:

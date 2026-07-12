@@ -1,6 +1,24 @@
 # 通讯与生命周期
 
-本页说明 L30 的连接方式、关闭方式、使能/失能，以及单设备、多设备、多 CANFD 模块通讯示例。
+本页说明 L30 的连接方式、关闭方式、使能/失能，以及单设备、多设备、多 CANFD 模块通讯示例。以下多模块示例使用默认厂商动态库后端；Linux SocketCAN 的接口配置、连接参数和排错方法见 [CAN FD 总线（L30 / O20）](../canfd.md)。
+
+## Linux SocketCAN 连接
+
+把 `can0` 配置为 CAN FD 后，显式选择 `socketcan` 后端：
+
+```python
+from linkerbot import L30
+
+with L30(
+    node_id=1,
+    interface_type="socketcan",
+    channel="can0",
+    auto_start_periodic=False,
+) as hand:
+    print(hand.version.get_device_info(timeout_ms=1000))
+```
+
+`channel` 是 Linux 网络接口名，不是厂商适配器的整数 `channel_index`。
 
 ## 单只手连接
 

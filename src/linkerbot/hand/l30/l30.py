@@ -12,8 +12,13 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
-from linkerbot.comm.canfd import CANFDConfigOptions, CANFDMessageDispatcher
+from linkerbot.comm.canfd import (
+    CANFDConfigOptions,
+    CANFDMessageDispatcher,
+    SocketCANFDBackend,
+)
 from linkerbot.exceptions import CANError, LinkerbotError, StateError, ValidationError
 from linkerbot.queue import IterableQueue
 
@@ -54,21 +59,43 @@ class L30:
 
     The L30 class owns the CANFD dispatcher by default and exposes subsystem
     managers for control, angle, speed, torque, current, temperature, fault,
-    tactile force sensors, and device-side periodic reports. It can also accept
-    an injected dispatcher for tests or future CANFD backends such as socketcan-fd.
+    tactile force sensors, and device-side periodic reports. Two CANFD
+    backends are supported:
+
+    - ``interface_type="ctypes"`` (default): uses the vendor
+      ``libcanbus.so`` / ``HCanbus.dll`` adapter. Works on Linux and Windows
+      and configures the bitrate from the SDK at open time.
+    - ``interface_type="socketcan"``: uses Linux SocketCAN in CAN FD mode via
+      python-can. Requires the link to be configured via ``ip link``; the SDK
+      checks the current link state and refuses to silently override it.
 
     Use L30 as a context manager so the dispatcher and background workers are
-    stopped reliably:
+    stopped reliably.
+
+    Vendor adapter (default):
 
     ```python
     with L30(library_path="/path/to/libcanbus.so") as hand:
         angles = hand.angle.get_blocking(timeout_ms=1000)
         print(angles.angles.to_list())
-
-        for event in hand.stream():
-            print(event)
-            break
     ```
+
+    SocketCAN FD on Linux. Bring the link up first, for example:
+
+    ```bash
+    sudo ip link set can0 up type can bitrate 1000000 dbitrate 5000000 fd on
+    ```
+
+    Then:
+
+    ```python
+    with L30(interface_type="socketcan", channel="can0") as hand:
+        angles = hand.angle.get_blocking(timeout_ms=1000)
+        print(angles.angles.to_list())
+    ```
+
+    Pass ``auto_reconfigure=True`` to let the SDK run ``ip link`` itself when
+    the link is missing or has mismatched bitrates (requires CAP_NET_ADMIN).
 
     Attributes:
         control: Manager for enable and disable commands.
@@ -93,26 +120,51 @@ class L30:
         config: CANFDConfigOptions | None = None,
         auto_start_periodic: bool = True,
         dispatcher: L30DispatcherLike | None = None,
+        interface_type: Literal["ctypes", "socketcan"] = "ctypes",
+        channel: str | None = None,
+        bitrate: int = 1_000_000,
+        data_bitrate: int = 5_000_000,
+        auto_reconfigure: bool = False,
     ) -> None:
         """Initialize the L30 hand interface.
 
         Args:
             node_id: L30 device node ID used as CANFD destination ID.
             host_id: Host node ID used as CANFD source ID.
-            device_index: Vendor CANFD adapter device index.
-            channel_index: Vendor CANFD adapter channel index.
-            library_path: Path to the vendor CANFD dynamic library. If omitted,
-                the CANFD backend uses its default library lookup.
-            config: CANFD adapter configuration. If omitted, the CANFD backend
-                uses its default nominal/data baud and frame settings.
+            device_index: Vendor CANFD adapter device index. Used when
+                ``interface_type="ctypes"``.
+            channel_index: Vendor CANFD adapter channel index. Used when
+                ``interface_type="ctypes"``.
+            library_path: Path to the vendor CANFD dynamic library. Used when
+                ``interface_type="ctypes"``. If omitted, the CANFD backend uses
+                its default library lookup.
+            config: CANFD adapter configuration. Used when
+                ``interface_type="ctypes"``. If omitted, the CANFD backend uses
+                its default nominal/data baud and frame settings.
             auto_start_periodic: Whether to enable the default angle periodic
                 report immediately after initialization.
             dispatcher: Optional dispatcher-like transport. Pass this for tests
-                or alternate CANFD transports while keeping L30 protocol logic
-                unchanged.
+                or alternate CANFD transports; bypasses every other transport
+                argument.
+            interface_type: ``"ctypes"`` (default) uses the vendor
+                ``libcanbus.so`` / ``HCanbus.dll`` backend. ``"socketcan"``
+                uses Linux SocketCAN in CAN FD mode (``channel`` required).
+            channel: SocketCAN interface name (``"can0"``…). Required when
+                ``interface_type="socketcan"``; ignored otherwise.
+            bitrate: Nominal bitrate for the SocketCAN backend, defaults to
+                1 Mbit/s. Ignored when ``interface_type="ctypes"``.
+            data_bitrate: Data-phase bitrate for the SocketCAN backend,
+                defaults to 5 Mbit/s. Ignored when ``interface_type="ctypes"``.
+            auto_reconfigure: When True with ``interface_type="socketcan"``,
+                the SDK runs ``ip link set ... down/up`` itself if the link
+                is missing or has mismatched bitrates. Requires
+                ``CAP_NET_ADMIN``. Defaults to False (the SDK only inspects
+                the link and reports a copyable ``ip link`` command on
+                mismatch). Ignored when ``interface_type="ctypes"``.
 
         Raises:
-            ValidationError: If node, host, device, or channel IDs are invalid.
+            ValidationError: If any node / host / device / channel IDs or
+                ``interface_type`` is invalid.
             CANError: If the CANFD backend cannot be initialized.
         """
         protocol._validate_range(
@@ -129,37 +181,61 @@ class L30:
             raise ValidationError("channel_index must be int")
         if channel_index < 0:
             raise ValidationError("channel_index must be non-negative")
+        if interface_type not in ("ctypes", "socketcan"):
+            raise ValidationError(
+                f"interface_type must be 'ctypes' or 'socketcan', got {interface_type!r}"
+            )
 
         self._bus_error: Exception | None = None
         self._owns_dispatcher = dispatcher is None
-        if dispatcher is None:
-            dispatcher = CANFDMessageDispatcher(
-                device_index=device_index,
-                channel_index=channel_index,
-                library_path=library_path,
-                config=config,
-                on_bus_error=self._on_bus_error,
-            )
-        self._dispatcher = dispatcher
-        self._client = L30Client(dispatcher, node_id=node_id, host_id=host_id)
-
-        self.control = ControlManager(self._client)
-        self.angle = AngleManager(self._client)
-        self.speed = SpeedManager(self._client)
-        self.torque = TorqueManager(self._client)
-        self.current = CurrentManager(self._client)
-        self.temperature = TemperatureManager(self._client)
-        self.fault = FaultManager(self._client)
-        self.force_sensor = ForceSensorManager(self._client)
-        self.report = ReportManager(self._client)
-        self.version = VersionManager(self._client)
-
+        # Initialize all simple fields before constructing the dispatcher so
+        # that close() — which may run very early via the on_bus_error callback
+        # once the dispatcher's recv thread starts — finds every attribute it
+        # needs already in place.
         self._closed = False
+        self._dispatcher: L30DispatcherLike | None = None
         self._unified_queue: IterableQueue[SensorEvent] | None = None
         self._stop_polling = threading.Event()
         self._stop_polling.set()
         self._polling_threads: dict[str, threading.Thread] = {}
-        self._polling_senders: dict[str, Callable[[], None]] = {
+        self._polling_senders: dict[str, Callable[[], None]] = {}
+
+        if dispatcher is None:
+            dispatcher = self._build_dispatcher(
+                interface_type=interface_type,
+                device_index=device_index,
+                channel_index=channel_index,
+                library_path=library_path,
+                config=config,
+                channel=channel,
+                bitrate=bitrate,
+                data_bitrate=data_bitrate,
+                auto_reconfigure=auto_reconfigure,
+            )
+        self._dispatcher = dispatcher
+        try:
+            self._client = L30Client(dispatcher, node_id=node_id, host_id=host_id)
+
+            self.control = ControlManager(self._client)
+            self.angle = AngleManager(self._client)
+            self.speed = SpeedManager(self._client)
+            self.torque = TorqueManager(self._client)
+            self.current = CurrentManager(self._client)
+            self.temperature = TemperatureManager(self._client)
+            self.fault = FaultManager(self._client)
+            self.force_sensor = ForceSensorManager(self._client)
+            self.report = ReportManager(self._client)
+            self.version = VersionManager(self._client)
+        except BaseException:
+            if self._owns_dispatcher:
+                try:
+                    self._dispatcher.stop()
+                except Exception:
+                    pass
+            self._closed = True
+            raise
+
+        self._polling_senders = {
             SensorSource.ANGLE.value: self.angle._send_sense_request,
             SensorSource.SPEED.value: self.speed._send_sense_request,
             SensorSource.CURRENT.value: self.current._send_sense_request,
@@ -347,34 +423,48 @@ class L30:
     def close(self) -> None:
         """Release stream, polling, manager, client, and owned dispatcher resources.
 
-        This method is idempotent. It does not send an L30 disable command; call
-        control.disable() explicitly when the hardware should be disabled.
+        Idempotent. ``_closed`` is set before any release runs so a re-entry
+        (for example from ``__del__`` after a partial failure, or from
+        ``on_bus_error`` while ``__init__`` is still running) returns
+        immediately rather than retrying half-released resources. Each owned
+        attribute is consulted via ``getattr`` so close() can also run safely
+        if ``__init__`` was interrupted before all fields were assigned.
         """
         if self._closed:
             return
-        if self._bus_error is None:
+        self._closed = True
+        if self._bus_error is None and getattr(self, "report", None) is not None:
             try:
                 self.report.disable_all(timeout_ms=_DEFAULT_PERIODIC_TIMEOUT_MS)
             except LinkerbotError:
                 pass
-        self.stop_polling()
-        self.stop_stream()
-        for manager in (
-            self.angle,
-            self.speed,
-            self.current,
-            self.temperature,
-            self.fault,
-        ):
-            manager.close()
-        self._client.close()
-        if self._owns_dispatcher:
-            self._dispatcher.stop()
-        self._closed = True
+        if hasattr(self, "_stop_polling"):
+            self.stop_polling()
+        if getattr(self, "_unified_queue", None) is not None:
+            self.stop_stream()
+        for attr in ("angle", "speed", "current", "temperature", "fault"):
+            manager = getattr(self, attr, None)
+            if manager is not None:
+                manager.close()
+        client = getattr(self, "_client", None)
+        if client is not None:
+            client.close()
+        if getattr(self, "_owns_dispatcher", False):
+            dispatcher = getattr(self, "_dispatcher", None)
+            if dispatcher is not None:
+                dispatcher.stop()
 
     def __del__(self) -> None:
-        if hasattr(self, "_closed"):
+        # close() can fail at GC time for many reasons (interpreter shutdown,
+        # already-finalised dependencies, hardware errors). __del__ is best
+        # effort, so swallow any error rather than letting Python print
+        # "Exception ignored in __del__" noise on exit.
+        if not hasattr(self, "_closed"):
+            return
+        try:
             self.close()
+        except BaseException:
+            pass
 
     def is_closed(self) -> bool:
         """Return whether this L30 interface has been closed or lost its bus."""
@@ -383,6 +473,41 @@ class L30:
     def _on_bus_error(self, error: Exception) -> None:
         self._bus_error = error
         self.close()
+
+    def _build_dispatcher(
+        self,
+        *,
+        interface_type: str,
+        device_index: int,
+        channel_index: int,
+        library_path: str | Path | None,
+        config: CANFDConfigOptions | None,
+        channel: str | None,
+        bitrate: int,
+        data_bitrate: int,
+        auto_reconfigure: bool,
+    ) -> CANFDMessageDispatcher:
+        if interface_type == "ctypes":
+            return CANFDMessageDispatcher(
+                device_index=device_index,
+                channel_index=channel_index,
+                library_path=library_path,
+                config=config,
+                on_bus_error=self._on_bus_error,
+            )
+        if channel is None:
+            raise ValidationError(
+                "interface_type='socketcan' requires channel (e.g. channel='can0')"
+            )
+        backend = SocketCANFDBackend(
+            channel=channel,
+            bitrate=bitrate,
+            data_bitrate=data_bitrate,
+            auto_reconfigure=auto_reconfigure,
+        )
+        return CANFDMessageDispatcher(
+            interface=backend, on_bus_error=self._on_bus_error
+        )
 
     def _ensure_open(self) -> None:
         if self._bus_error is not None:

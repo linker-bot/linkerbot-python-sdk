@@ -2,6 +2,8 @@
 
 L6/O6 灵巧手通过 CAN 总线通信。构造函数中的 `interface_type` 参数指定 CAN 适配器类型。
 
+L30/O20 使用 CAN FD；python-can SocketCAN 的链路配置和连接参数请参考 [CAN FD 总线（L30 / O20）](./canfd.md)。
+
 ## 构造参数
 
 ```python

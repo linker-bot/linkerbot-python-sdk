@@ -87,5 +87,83 @@ def test_start_polling_rejects_invalid_interval() -> None:
     hand.close()
 
 
+def test_l30_rejects_invalid_interface_type() -> None:
+    with pytest.raises(ValidationError, match="interface_type"):
+        L30(
+            interface_type="usbcan",  # type: ignore[arg-type]
+            dispatcher=FakeDispatcher(),
+            auto_start_periodic=False,
+        )
+
+
+def test_l30_socketcan_requires_channel() -> None:
+    with pytest.raises(ValidationError, match="channel"):
+        L30(interface_type="socketcan", auto_start_periodic=False)
+
+
+def test_l30_socketcan_routes_to_socketcan_backend(monkeypatch) -> None:
+    """interface_type='socketcan' must construct SocketCANFDBackend with the
+    user-supplied channel and bitrates."""
+    captured: dict[str, object] = {}
+
+    class _StubBackend:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def send(self, message, timeout_ms=10):
+            pass
+
+        def receive(self, max_frames=64, timeout_ms=10):
+            return []
+
+        def close(self):
+            pass
+
+    import linkerbot.hand.l30.l30 as l30_module
+
+    monkeypatch.setattr(l30_module, "SocketCANFDBackend", _StubBackend)
+
+    hand = L30(
+        interface_type="socketcan",
+        channel="can3",
+        bitrate=2_000_000,
+        data_bitrate=4_000_000,
+        auto_reconfigure=True,
+        auto_start_periodic=False,
+    )
+    try:
+        assert captured == {
+            "channel": "can3",
+            "bitrate": 2_000_000,
+            "data_bitrate": 4_000_000,
+            "auto_reconfigure": True,
+        }
+    finally:
+        hand.close()
+
+
+def test_on_bus_error_during_construction_does_not_attribute_error(
+    monkeypatch,
+) -> None:
+    """If the dispatcher's recv thread reports a bus error before __init__ has
+    finished assigning every field, on_bus_error -> close() must run without
+    raising AttributeError on _stop_polling / _polling_threads / etc."""
+
+    class EagerlyFailingDispatcher(FakeDispatcher):
+        def __init__(self, *, on_bus_error=None, **kwargs) -> None:
+            super().__init__()
+            if on_bus_error is not None:
+                on_bus_error(RuntimeError("simulated bus error"))
+
+    import linkerbot.hand.l30.l30 as l30_module
+
+    monkeypatch.setattr(l30_module, "CANFDMessageDispatcher", EagerlyFailingDispatcher)
+
+    # Construction should complete (close() got called early but did not
+    # raise); the resulting hand reports itself closed.
+    hand = L30(auto_start_periodic=False)
+    assert hand.is_closed()
+
+
 def _ack(dispatcher: FakeDispatcher, arbitration_id: int) -> None:
     dispatcher.inject(CANFDMessage(arbitration_id=arbitration_id, data=ack_payload()))

@@ -33,24 +33,25 @@ class JointSpec:
     maximum: int
 
 
+# L30 CAN FD protocol v6, section 9.1: left-hand default position ranges.
 L30_JOINT_SPECS: tuple[JointSpec, ...] = (
-    JointSpec("j1", 0, 880),
+    JointSpec("j1", 0, 900),
     JointSpec("j2", 0, 1200),
     JointSpec("j3", 0, 900),
     JointSpec("j4", 0, 800),
     JointSpec("j5", -200, 200),
-    JointSpec("j6", 0, 1200),
-    JointSpec("j7", 0, 1200),
-    JointSpec("j8", 0, 1200),
-    JointSpec("j9", 0, 1200),
-    JointSpec("j10", 0, 1500),
-    JointSpec("j11", 0, 1200),
+    JointSpec("j6", 0, 1500),
+    JointSpec("j7", 0, 1600),
+    JointSpec("j8", 0, 1600),
+    JointSpec("j9", 0, 1500),
+    JointSpec("j10", 0, 1600),
+    JointSpec("j11", 0, 1500),
     JointSpec("j12", -200, 200),
     JointSpec("j13", -200, 200),
     JointSpec("j14", -200, 200),
-    JointSpec("j15", 0, 1200),
-    JointSpec("j16", 0, 1200),
-    JointSpec("j17", -900, 900),
+    JointSpec("j15", 0, 1600),
+    JointSpec("j16", 0, 1500),
+    JointSpec("j17", -1000, 1000),
 )
 
 
