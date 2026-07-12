@@ -4,6 +4,7 @@
 /CLAUDE.md
 /AGENTS.md
 /docs/superpowers
+/docs/protocol
 /docs/dev
 # a7v2 source URDF assets (full URDF + MJCF + mesh STLs ~27 MB) used for
 # local visualisation / debugging only. The runtime / wheel uses the flat

@@ -19,6 +19,7 @@ if TYPE_CHECKING:  # pragma: no cover - import-time only for static checkers
     from .l30 import L30, L30Bus
     from .o6 import O6
     from .o20 import O20
+    from .o30i import O30i
 
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "L6": ("linkerbot.hand.l6", "L6"),
@@ -28,6 +29,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "L30Bus": ("linkerbot.hand.l30", "L30Bus"),
     "O6": ("linkerbot.hand.o6", "O6"),
     "O20": ("linkerbot.hand.o20", "O20"),
+    "O30i": ("linkerbot.hand.o30i", "O30i"),
 }
 
 
@@ -45,4 +47,4 @@ def __dir__() -> list[str]:
     return sorted({*globals(), *_LAZY_EXPORTS})
 
 
-__all__ = ["L6", "O6", "L20lite", "L25", "L30", "L30Bus", "O20"]
+__all__ = ["L6", "O6", "L20lite", "L25", "L30", "L30Bus", "O20", "O30i"]

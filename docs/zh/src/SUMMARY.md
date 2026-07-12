@@ -9,7 +9,7 @@
 # 参考
 
 - [CAN 总线](reference/can.md)
-- [CAN FD 总线（L30 / O20）](reference/canfd.md)
+- [CAN FD 总线（L30 / O20 / O30i）](reference/canfd.md)
 - [L6](reference/l6/README.md)
   - [角度控制](reference/l6/angle.md)
   - [速度控制](reference/l6/speed.md)
@@ -40,6 +40,10 @@
   - [故障管理](reference/o20/fault.md)
   - [设备信息](reference/o20/version.md)
   - [轮询与事件流](reference/o20/stream-polling.md)
+- [O30i](reference/o30i/README.md)
+  - [实现状态与测试范围](reference/o30i/implementation-status.md)
+  - [HandProtocol_v1.0 协议](reference/o30i/hand-protocol-v1.md)
+  - [运行时控制与状态](reference/o30i/runtime.md)
 - [L20Lite](reference/l20lite/README.md)
   - [角度控制](reference/l20lite/angle.md)
   - [速度控制](reference/l20lite/speed.md)
