@@ -34,7 +34,7 @@ def test_l30_hardware_snapshot_after_reading_core_sensors() -> None:
     assert snapshot.current is not None
     assert snapshot.temperature is not None
     assert snapshot.fault is not None
-    assert_joint_tuple(tuple(snapshot.angle.angles))
+    assert_joint_tuple(tuple(snapshot.angle.angles.to_raw()))
     assert_joint_tuple(snapshot.speed.speeds)
     assert_joint_tuple(snapshot.current.currents)
     assert_joint_tuple(snapshot.temperature.temperatures)

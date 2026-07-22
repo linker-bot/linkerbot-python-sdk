@@ -11,6 +11,7 @@ should stay in the percentage space; drop to :meth:`L30Angle.from_raw` or
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from linkerbot.exceptions import ValidationError
@@ -75,11 +76,11 @@ class L30Angle:
         _validate_percentage_values(self.values)
 
     @classmethod
-    def from_list(cls, values: list[float] | tuple[float, ...]) -> L30Angle:
+    def from_list(cls, values: Sequence[int | float]) -> L30Angle:
         """Construct from 0-100 percentage floats.
 
         Args:
-            values: 17 percentage values in J1..J17 order, each in [0, 100].
+            values: 17 percentage numbers in J1..J17 order, each in [0, 100].
 
         Returns:
             L30Angle command target.

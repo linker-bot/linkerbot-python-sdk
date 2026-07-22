@@ -8,6 +8,8 @@ needed to exercise the real socketcan path against a vcan/real device.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -76,23 +78,31 @@ def with_ip_present():
 
 
 @pytest.fixture
-def link_show(monkeypatch):
+def link_show(monkeypatch: pytest.MonkeyPatch) -> LinkShowFake:
     """Patch subprocess.run; default returns a 'link not configured' result."""
-    runs: list[list[str]] = []
-
-    def fake_run(args, **kwargs):
-        runs.append(list(args))
-        if args[:3] == ["ip", "-d", "-j"]:
-            return fake_run.show_response
-        return fake_run.set_response
-
-    fake_run.show_response = _link_show_proc(returncode=1)
-    fake_run.set_response = _link_show_proc(returncode=0)
+    fake_run = LinkShowFake()
     monkeypatch.setattr(
         "linkerbot.comm.canfd.socketcan_backend.subprocess.run", fake_run
     )
-    fake_run.runs = runs
     return fake_run
+
+
+@dataclass
+class LinkShowFake:
+    show_response: mock.Mock = field(
+        default_factory=lambda: _link_show_proc(returncode=1)
+    )
+    set_response: mock.Mock = field(
+        default_factory=lambda: _link_show_proc(returncode=0)
+    )
+    runs: list[list[str]] = field(default_factory=list)
+
+    def __call__(self, args: list[str], **kwargs: Any) -> mock.Mock:
+        _ = kwargs
+        self.runs.append(list(args))
+        if args[:3] == ["ip", "-d", "-j"]:
+            return self.show_response
+        return self.set_response
 
 
 def test_socketcan_backend_satisfies_protocol(
@@ -426,6 +436,29 @@ def test_receive_returns_empty_when_no_frame_arrives_in_window(
     assert frames == []
     # One call only, the kernel select handled the wait — not a busy poll.
     assert fake_can_bus.recv.call_count == 1
+
+
+def test_receive_zero_timeout_performs_one_nonblocking_poll(
+    fake_can_bus, with_ip_present, link_show
+) -> None:
+    link_show.show_response = _link_show_proc(returncode=0, stdout=_link_show_payload())
+    incoming = mock.MagicMock(
+        arbitration_id=0x456,
+        is_extended_id=True,
+        is_fd=True,
+        bitrate_switch=False,
+        data=b"\xaa",
+    )
+    fake_can_bus.recv.side_effect = [incoming, None]
+
+    backend = SocketCANFDBackend(channel="can0")
+    try:
+        frames = backend.receive(max_frames=4, timeout_ms=0)
+    finally:
+        backend.close()
+
+    assert [frame.data for frame in frames] == [b"\xaa"]
+    assert fake_can_bus.recv.call_args_list[0] == mock.call(timeout=0.0)
 
 
 def test_close_is_idempotent_and_blocks_further_io(

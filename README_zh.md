@@ -58,3 +58,7 @@ with L6(side="left", interface_name="can0") as hand:
 ```
 
 更多用法请参阅[完整文档](https://docs.linkerhub.work/sdk/zh-cn/)。
+
+## 项目信息
+
+- [变更日志](CHANGELOG.md)

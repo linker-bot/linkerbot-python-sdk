@@ -45,13 +45,16 @@ def test_o20_defaults_to_can_fd_without_bitrate_switching() -> None:
 
 def test_o20_rejects_invalid_side() -> None:
     with pytest.raises(ValidationError):
-        O20(side="middle", dispatcher=FakeDispatcher())  # type: ignore[arg-type]
+        O20(
+            side="middle",  # ty: ignore[invalid-argument-type]
+            dispatcher=FakeDispatcher(),
+        )
 
 
 def test_o20_rejects_invalid_interface_type() -> None:
     with pytest.raises(ValidationError, match="interface_type"):
         O20(
-            interface_type="usbcan",  # type: ignore[arg-type]
+            interface_type="usbcan",  # ty: ignore[invalid-argument-type]
             dispatcher=FakeDispatcher(),
         )
 
@@ -214,10 +217,11 @@ def test_stream_emits_angle_event_after_blocking_read() -> None:
         assert event.data.angles.to_raw() == list(range(1, 17))
 
 
-def test_start_polling_rejects_invalid_interval() -> None:
+@pytest.mark.parametrize("interval", [0.0, True, float("nan"), float("inf")])
+def test_start_polling_rejects_invalid_interval(interval: float) -> None:
     with O20(dispatcher=FakeDispatcher()) as hand:
         with pytest.raises(ValidationError):
-            hand.start_polling({SensorSource.ANGLE: 0})
+            hand.start_polling({SensorSource.ANGLE: interval})
 
 
 def test_close_marks_closed_before_releasing_resources(monkeypatch) -> None:
@@ -253,7 +257,7 @@ def test_start_polling_rolls_back_when_a_thread_fails_to_start(
 
     real_thread = threading.Thread
 
-    class FlakyThread(real_thread):  # type: ignore[misc, valid-type]
+    class FlakyThread(real_thread):
         def start(self) -> None:
             started["count"] += 1
             if started["count"] == 2:

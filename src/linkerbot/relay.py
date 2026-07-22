@@ -2,7 +2,7 @@
 
 import threading
 from collections.abc import Callable
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 from linkerbot.exceptions import TimeoutError
 
@@ -42,7 +42,7 @@ class DataRelay(Generic[T]):
         if event.wait(timeout_s):
             if result_holder["data"] is _SENTINEL:
                 raise TimeoutError(f"No data received within {timeout_s * 1000:.0f}ms")
-            return result_holder["data"]  # type: ignore[return-value]
+            return cast(T, result_holder["data"])
         else:
             with self._lock:
                 if (event, result_holder) in self._waiters:

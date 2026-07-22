@@ -43,8 +43,10 @@ def test_angle_get_blocking_decodes_first_sixteen_motor_slots_only() -> None:
     # Sensor readback stores percentages internally; compare via to_raw() to
     # keep the "raw N in → raw N out" assertion without recomputing per-joint
     # percentage values.
+    snapshot = manager.get_snapshot()
     assert data.angles.to_raw() == list(range(1, 17))
-    assert manager.get_snapshot().angles.to_raw() == list(range(1, 17))
+    assert snapshot is not None
+    assert snapshot.angles.to_raw() == list(range(1, 17))
 
 
 def test_angle_set_angles_uses_per_joint_minimum_and_maximum() -> None:

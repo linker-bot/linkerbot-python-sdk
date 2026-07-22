@@ -10,7 +10,7 @@ and ``set_raw_angles`` takes protocol-native raw integers. Sensor readback
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from linkerbot.exceptions import ValidationError
@@ -54,7 +54,7 @@ class AngleManager:
         self._client = client
         self._relay = DataRelay[O20AngleData]()
 
-    def set_angles(self, angles: O20Angle | list[float] | tuple[float, ...]) -> None:
+    def set_angles(self, angles: O20Angle | Sequence[int | float]) -> None:
         """Send 16 target joint angles as 0-100 percentages.
 
         This is the L6/L30-aligned high-level API: pass a list of 16 floats
@@ -63,7 +63,7 @@ class AngleManager:
         joint's spec range before transmission.
 
         Args:
-            angles: :class:`O20Angle` or 16-element sequence of 0-100 floats
+            angles: :class:`O20Angle` or 16-element sequence of 0-100 numbers
                 in motor-ID order.
 
         Raises:
@@ -71,11 +71,11 @@ class AngleManager:
         """
         if isinstance(angles, O20Angle):
             raw_values = angles.to_raw()
-        elif isinstance(angles, (list, tuple)):
+        elif isinstance(angles, Sequence):
             raw_values = O20Angle.from_list(angles).to_raw()
         else:
             raise ValidationError(
-                f"Expected O20Angle or list/tuple of floats, "
+                f"Expected O20Angle or a sequence of numbers, "
                 f"got {type(angles).__name__}"
             )
         self._send_raw_angles(raw_values)

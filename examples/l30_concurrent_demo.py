@@ -89,7 +89,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--library-path", default=os.environ.get("LINKERBOT_CANFD_LIB"))
     parser.add_argument(
-        "--hz", type=float, default=100.0,
+        "--hz",
+        type=float,
+        default=100.0,
         help="control loop rate (Hz). Each cycle sends 3 frames: angle+speed+torque",
     )
     parser.add_argument("--duration", type=float, default=10.0)
@@ -97,7 +99,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--speed", type=int, default=100)
     parser.add_argument("--torque", type=int, default=200)
     parser.add_argument(
-        "--tactile-at", type=float, default=2.0,
+        "--tactile-at",
+        type=float,
+        default=2.0,
         help="seconds into the run to fire one tactile read on the thumb;"
         " set <0 to skip",
     )
@@ -106,7 +110,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device-index", type=int, default=0)
     parser.add_argument("--channel-index", type=int, default=0)
     parser.add_argument(
-        "--timeout-ms", type=float, default=1000.0,
+        "--timeout-ms",
+        type=float,
+        default=1000.0,
         help="ACK timeout for enable/disable",
     )
     return parser.parse_args()
@@ -308,14 +314,8 @@ def _print_summary(stats: dict[str, float], *, events_received: int) -> None:
     print()
     print("[demo] ─ summary ──────────────────────────────────────────────")
     print(f"[demo]   wall time             {elapsed:.2f} s")
-    print(
-        f"[demo]   control cycles sent    {cycles}  "
-        f"({cycles / elapsed:.0f} Hz)"
-    )
-    print(
-        f"[demo]   total frames sent      {frames}  "
-        f"({frames / elapsed:.0f} fps)"
-    )
+    print(f"[demo]   control cycles sent    {cycles}  ({cycles / elapsed:.0f} Hz)")
+    print(f"[demo]   total frames sent      {frames}  ({frames / elapsed:.0f} fps)")
     print(
         f"[demo]   cycle wall latency     p50={stats['cycle_latency_p50_ms']:.2f} ms  "
         f"p99={stats['cycle_latency_p99_ms']:.2f} ms"

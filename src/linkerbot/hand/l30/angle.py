@@ -10,7 +10,7 @@ the underlying protocol values.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from linkerbot.exceptions import ValidationError
@@ -57,7 +57,7 @@ class AngleManager:
             protocol.L30_SUBCMD_POSITION, self._on_periodic_report
         )
 
-    def set_angles(self, angles: L30Angle | list[float] | tuple[float, ...]) -> None:
+    def set_angles(self, angles: L30Angle | Sequence[int | float]) -> None:
         """Send 17 target joint angles as 0-100 percentages.
 
         This is the L6-aligned high-level API: pass a list of 17 floats
@@ -66,7 +66,7 @@ class AngleManager:
         joint's spec range before transmission.
 
         Args:
-            angles: :class:`L30Angle` or 17-element sequence of 0-100 floats
+            angles: :class:`L30Angle` or 17-element sequence of 0-100 numbers
                 in J1..J17 order.
 
         Raises:
@@ -74,11 +74,11 @@ class AngleManager:
         """
         if isinstance(angles, L30Angle):
             raw_values = angles.to_raw()
-        elif isinstance(angles, (list, tuple)):
+        elif isinstance(angles, Sequence):
             raw_values = L30Angle.from_list(angles).to_raw()
         else:
             raise ValidationError(
-                f"Expected L30Angle or list/tuple of floats, "
+                f"Expected L30Angle or a sequence of numbers, "
                 f"got {type(angles).__name__}"
             )
         self._send_raw_angles(raw_values)

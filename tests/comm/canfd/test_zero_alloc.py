@@ -210,9 +210,7 @@ def test_message_to_frame_compat_helper_still_produces_independent_frame(
     overwriting their copy.
     """
     interface, _ = _make(monkeypatch)
-    frame = interface._message_to_frame(
-        CANFDMessage(arbitration_id=7, data=b"abc")
-    )
+    frame = interface._message_to_frame(CANFDMessage(arbitration_id=7, data=b"abc"))
     assert frame is not interface._tx_frame
     assert frame.ID == 7
     assert ctypes.string_at(ctypes.addressof(frame.Data), 3) == b"abc"

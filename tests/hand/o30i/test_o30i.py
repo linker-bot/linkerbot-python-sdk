@@ -80,7 +80,7 @@ def test_o30i_validates_endpoints_before_opening_backend(
 
     monkeypatch.setattr(o30i_module, "CANFDMessageDispatcher", fail_if_opened)
     with pytest.raises(ValidationError, match=message):
-        O30i(**kwargs)  # type: ignore[arg-type]
+        O30i(**kwargs)  # ty: ignore[invalid-argument-type]
     assert opened is False
 
 
@@ -232,6 +232,10 @@ def test_polling_validation_and_partial_start_rollback(
     with O30i(dispatcher=dispatcher) as hand:
         with pytest.raises(ValidationError, match="positive"):
             hand.start_polling({SensorSource.ANGLE: 0})
+        with pytest.raises(ValidationError, match="finite"):
+            hand.start_polling({SensorSource.ANGLE: float("nan")})
+        with pytest.raises(ValidationError, match="finite"):
+            hand.start_polling({SensorSource.ANGLE: float("inf")})
 
         real_thread = threading.Thread
         starts = 0

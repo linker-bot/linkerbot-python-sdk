@@ -17,7 +17,7 @@ from .joints import O30iAngle, validate_u8_values
 
 @dataclass(frozen=True, slots=True)
 class O30iAngleData:
-    """O30i position data in normalized percentage space."""
+    """O30i position data in logical percentage space (0=open, 100=closed)."""
 
     angles: O30iAngle
     timestamp: float
@@ -40,7 +40,7 @@ class AngleManager:
         *,
         timeout_ms: float = 100,
     ) -> None:
-        """Set all 20 physical joints from normalized percentages."""
+        """Set all physical joints from 0=open to 100=closed percentages."""
         if isinstance(angles, O30iAngle):
             raw = angles.to_raw()
         elif isinstance(angles, (list, tuple)):

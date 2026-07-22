@@ -27,7 +27,6 @@ import json
 import shutil
 import subprocess
 import threading
-import time
 
 import can
 
@@ -239,22 +238,19 @@ class SocketCANFDBackend:
         if timeout_ms < 0:
             raise ValidationError("timeout_ms must be non-negative")
 
-        deadline = time.monotonic() + timeout_ms / 1000.0
         result: list[CANFDMessage] = []
 
         # First frame: block up to the full remaining timeout in a single
-        # recv() so the kernel can park us on its socket; no busy poll.
-        while not result:
-            remaining = deadline - time.monotonic()
-            if remaining < 0:
-                return result
-            try:
-                msg = self._bus.recv(timeout=remaining)
-            except can.CanError as error:
-                raise CANError(f"SocketCAN FD receive failed: {error}") from error
-            if msg is None:
-                return result
-            result.append(_to_canfd_message(msg))
+        # recv() so the kernel can park us on its socket; no busy poll. Always
+        # call recv once, including for timeout_ms=0, which is a non-blocking
+        # poll rather than an unconditional empty result.
+        try:
+            msg = self._bus.recv(timeout=timeout_ms / 1000.0)
+        except can.CanError as error:
+            raise CANError(f"SocketCAN FD receive failed: {error}") from error
+        if msg is None:
+            return result
+        result.append(_to_canfd_message(msg))
 
         # Drain any frames already in the kernel buffer; stop as soon as the
         # buffer is empty (timeout=0) or we hit max_frames.

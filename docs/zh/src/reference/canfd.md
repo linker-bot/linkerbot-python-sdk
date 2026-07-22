@@ -4,10 +4,10 @@
 
 ## 两种 CAN FD 后端
 
-| 后端 | `interface_type` | 适用环境 | 连接参数 |
-| ---- | ---------------- | -------- | -------- |
-| 厂商动态库 | `"ctypes"`（默认） | Linux / Windows | `device_index`、`channel_index` 或 O20 的 `device`、`channel` |
-| SocketCAN | `"socketcan"` | Linux | L30 使用 `channel="can0"`；O20/O30i 使用 `socketcan_channel="can0"` |
+| 后端       | `interface_type`   | 适用环境        | 连接参数                                                            |
+| ---------- | ------------------ | --------------- | ------------------------------------------------------------------- |
+| 厂商动态库 | `"ctypes"`（默认） | Linux / Windows | `device_index`、`channel_index` 或 O20 的 `device`、`channel`       |
+| SocketCAN  | `"socketcan"`      | Linux           | L30 使用 `channel="can0"`；O20/O30i 使用 `socketcan_channel="can0"` |
 
 选择 SocketCAN 后不需要 `libcanbus.so`，但 Linux 必须已经识别 CAN 适配器，并将对应网络接口配置为 CAN FD 模式。
 
@@ -69,15 +69,15 @@ with L30(
 
 L30 的 SocketCAN 参数：
 
-| 参数 | 默认值 | 说明 |
-| ---- | ------ | ---- |
-| `interface_type` | `"ctypes"` | 使用 SocketCAN 时显式传 `"socketcan"` |
-| `channel` | `None` | SocketCAN 接口名，例如 `"can0"` |
-| `bitrate` | `1_000_000` | 仲裁段速率 |
-| `data_bitrate` | `5_000_000` | 数据段速率 |
-| `auto_reconfigure` | `False` | 是否允许 SDK 调用 `ip link` 重新配置接口 |
-| `node_id` | `1` | L30 设备 NodeID，范围 1～31 |
-| `host_id` | `0` | 主机节点 ID，范围 0～31 |
+| 参数               | 默认值      | 说明                                     |
+| ------------------ | ----------- | ---------------------------------------- |
+| `interface_type`   | `"ctypes"`  | 使用 SocketCAN 时显式传 `"socketcan"`    |
+| `channel`          | `None`      | SocketCAN 接口名，例如 `"can0"`          |
+| `bitrate`          | `1_000_000` | 仲裁段速率                               |
+| `data_bitrate`     | `5_000_000` | 数据段速率                               |
+| `auto_reconfigure` | `False`     | 是否允许 SDK 调用 `ip link` 重新配置接口 |
+| `node_id`          | `1`         | L30 设备 NodeID，范围 1～31              |
+| `host_id`          | `0`         | 主机节点 ID，范围 0～31                  |
 
 L30 默认使用 CAN FD+BRS，数据段会切换到 `data_bitrate`。
 
@@ -99,16 +99,16 @@ with O20(
 
 O20 的 SocketCAN 参数：
 
-| 参数 | 默认值 | 说明 |
-| ---- | ------ | ---- |
-| `interface_type` | `"ctypes"` | 使用 SocketCAN 时显式传 `"socketcan"` |
-| `socketcan_channel` | `None` | SocketCAN 接口名，例如 `"can0"` |
-| `bitrate` | `1_000_000` | 仲裁速率 |
-| `data_bitrate` | `5_000_000` | CAN FD 链路的数据段配置值 |
-| `auto_reconfigure` | `False` | 是否允许 SDK 调用 `ip link` 重新配置接口 |
-| `frame_type` | `0x04` | CAN FD、不启用 BRS；通常不要覆盖 |
-| `side` | `"right"` | 决定默认 `device_id` |
-| `device_id` | `None` | 显式覆盖 O20 设备 ID |
+| 参数                | 默认值      | 说明                                     |
+| ------------------- | ----------- | ---------------------------------------- |
+| `interface_type`    | `"ctypes"`  | 使用 SocketCAN 时显式传 `"socketcan"`    |
+| `socketcan_channel` | `None`      | SocketCAN 接口名，例如 `"can0"`          |
+| `bitrate`           | `1_000_000` | 仲裁速率                                 |
+| `data_bitrate`      | `5_000_000` | CAN FD 链路的数据段配置值                |
+| `auto_reconfigure`  | `False`     | 是否允许 SDK 调用 `ip link` 重新配置接口 |
+| `frame_type`        | `0x04`      | CAN FD、不启用 BRS；通常不要覆盖         |
+| `side`              | `"right"`   | 决定默认 `device_id`                     |
+| `device_id`         | `None`      | 显式覆盖 O20 设备 ID                     |
 
 L30 与 O20/O30i 的 SocketCAN 接口参数名称不同，是为了保留各手型原有构造函数中整数 `channel` 参数的兼容性。
 
@@ -129,16 +129,16 @@ with O30i(
 
 O30i 的 SocketCAN 参数：
 
-| 参数 | 默认值 | 说明 |
-| ---- | ------ | ---- |
-| `interface_type` | `"ctypes"` | 使用 SocketCAN 时显式传 `"socketcan"` |
-| `socketcan_channel` | `None` | SocketCAN 接口名，例如 `"can0"` |
-| `bitrate` | `1_000_000` | 仲裁速率 |
-| `data_bitrate` | `5_000_000` | CAN FD 链路的数据段配置值 |
-| `auto_reconfigure` | `False` | 是否允许 SDK 调用 `ip link` 重新配置接口 |
-| `frame_type` | `0x04` | CAN FD、不启用 BRS；通常不要覆盖 |
-| `request_id` | `0x001` | 11 位标准帧请求 ID |
-| `response_id` | `None` | 默认自动计算为 `request_id \| 0x400` |
+| 参数                | 默认值      | 说明                                     |
+| ------------------- | ----------- | ---------------------------------------- |
+| `interface_type`    | `"ctypes"`  | 使用 SocketCAN 时显式传 `"socketcan"`    |
+| `socketcan_channel` | `None`      | SocketCAN 接口名，例如 `"can0"`          |
+| `bitrate`           | `1_000_000` | 仲裁速率                                 |
+| `data_bitrate`      | `5_000_000` | CAN FD 链路的数据段配置值                |
+| `auto_reconfigure`  | `False`     | 是否允许 SDK 调用 `ip link` 重新配置接口 |
+| `frame_type`        | `0x04`      | CAN FD、不启用 BRS；通常不要覆盖         |
+| `request_id`        | `0x001`     | 11 位标准帧请求 ID                       |
+| `response_id`       | `None`      | 默认自动计算为 `request_id \| 0x400`     |
 
 O30i 的连接、协议安全边界和控制接口详见 [O30i reference](./o30i/README.md)。
 

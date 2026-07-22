@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import queue
 import threading
 import time
@@ -291,8 +292,10 @@ class O30i:
                 raise ValidationError("polling source must be SensorSource")
             if not isinstance(interval, (int, float)) or isinstance(interval, bool):
                 raise ValidationError(f"interval for {source.value} must be numeric")
-            if interval <= 0:
-                raise ValidationError(f"interval for {source.value} must be positive")
+            if not math.isfinite(interval) or interval <= 0:
+                raise ValidationError(
+                    f"interval for {source.value} must be finite and positive"
+                )
         self._stop_polling.clear()
         try:
             for source, interval in selected.items():

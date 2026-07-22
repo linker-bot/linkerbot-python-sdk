@@ -418,7 +418,7 @@ def _validate_vector_count(values: list[int] | tuple[int, ...]) -> None:
         raise ValidationError(f"expected {O20_JOINT_COUNT} values, got {len(values)}")
 
 
-def _validate_range(value: int, name: str, minimum: int, maximum: int) -> None:
+def _validate_range(value: object, name: str, minimum: int, maximum: int) -> None:
     # Accept int subclasses (e.g. IntEnum) so callers can pass O20Register
     # members directly, but reject bool — True/False are int subclasses in
     # Python and would otherwise sneak through as 0/1.

@@ -96,7 +96,7 @@ def test_mapping_manager_rejects_invalid_mapping(tmp_path: Path) -> None:
         manager.set_mapping(invalid)
 
     invalid = default_angle_mapping(2)
-    invalid[0][0] = 1.0  # type: ignore[list-item]
+    invalid[0][0] = 1.0  # ty: ignore[invalid-assignment]
     with pytest.raises(ValidationError):
         manager.set_mapping(invalid)
 
@@ -111,4 +111,6 @@ def test_mapping_manager_rejects_invalid_raw_values(tmp_path: Path) -> None:
         manager.map_values([0, 256])
 
     with pytest.raises(ValidationError):
-        manager.map_values([0, 1.0])  # type: ignore[list-item]
+        manager.map_values(
+            [0, 1.0]  # ty: ignore[invalid-argument-type]
+        )

@@ -11,13 +11,14 @@ persisted to a TOML file when they are created, updated, or reset.
 
 from __future__ import annotations
 
+import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-try:  # pragma: no cover - exercised by Python version
+if sys.version_info >= (3, 11):  # pragma: no cover - depends on Python version
     import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
+else:  # pragma: no cover - Python 3.10 fallback
     import tomli as tomllib
 
 # tomli_w is imported lazily inside _save_file() so that simply importing this

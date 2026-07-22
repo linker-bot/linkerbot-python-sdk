@@ -17,6 +17,9 @@ the lifetime of the process. These tests pin the refcount semantics:
 from __future__ import annotations
 
 import gc
+import threading
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 
@@ -25,16 +28,21 @@ from linkerbot.exceptions import CANError
 
 
 class _FakeFn:
-    def __init__(self, result: int = 0) -> None:
+    def __init__(
+        self,
+        result: int = 0,
+        hook: Callable[..., int] | None = None,
+    ) -> None:
         self.result = result
-        self.calls: list[tuple] = []
-        self.restype = None
-        self.argtypes = None
+        self.hook = hook
+        self.calls: list[tuple[Any, ...]] = []
+        self.restype: Any = None
+        self.argtypes: list[Any] | None = None
 
-    def __call__(self, *args):
+    def __call__(self, *args: Any) -> int:
         self.calls.append(args)
-        if callable(self.result):
-            return self.result()
+        if self.hook is not None:
+            return self.hook(*args)
         return self.result
 
 
@@ -124,6 +132,25 @@ def test_partial_init_failure_releases_lifecycle(
     assert backend._lifecycle_snapshot() == {}
 
 
+def test_init_exception_closes_device_and_releases_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeLib()
+
+    def raise_from_init(*args: Any) -> int:
+        raise OSError("vendor init crashed")
+
+    lib.CANFD_Init.hook = raise_from_init
+    _patch_loader(monkeypatch, lib)
+
+    with pytest.raises(OSError, match="vendor init crashed"):
+        backend.CANFDInterface()
+
+    assert lib.CAN_CloseDevice.calls == [(0, 0)]
+    assert len(lib.LibCANbus_Exit.calls) == 1
+    assert backend._lifecycle_snapshot() == {}
+
+
 def test_libcanbus_init_nonzero_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     lib = _FakeLib()
     lib.LibCANbus_Init.result = -1
@@ -152,6 +179,80 @@ def test_close_failure_still_releases_refcount(
     # later re-open can re-init cleanly.
     assert len(lib.LibCANbus_Exit.calls) == 1
     assert backend._lifecycle_snapshot() == {}
+
+
+def test_close_exception_still_releases_refcount(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeLib()
+
+    def raise_from_close(*args: Any) -> int:
+        raise OSError("vendor close crashed")
+
+    lib.CAN_CloseDevice.hook = raise_from_close
+    _patch_loader(monkeypatch, lib)
+    interface = backend.CANFDInterface()
+
+    with pytest.raises(CANError, match="vendor close crashed"):
+        interface.close()
+
+    assert len(lib.LibCANbus_Exit.calls) == 1
+    assert backend._lifecycle_snapshot() == {}
+
+
+def test_release_serializes_exit_before_next_acquire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeLib()
+    exit_started = threading.Event()
+    allow_exit = threading.Event()
+    second_init_started = threading.Event()
+    init_count = 0
+
+    def observe_init(*args: Any) -> int:
+        nonlocal init_count
+        init_count += 1
+        if init_count == 2:
+            second_init_started.set()
+        return 0
+
+    def blocking_exit(*args: Any) -> int:
+        exit_started.set()
+        assert allow_exit.wait(timeout=2.0)
+        return 0
+
+    lib.LibCANbus_Init.hook = observe_init
+    lib.LibCANbus_Exit.hook = blocking_exit
+    _patch_loader(monkeypatch, lib)
+    first = backend.CANFDInterface()
+
+    close_thread = threading.Thread(target=first.close, daemon=True)
+    close_thread.start()
+    assert exit_started.wait(timeout=1.0)
+
+    opened: list[backend.CANFDInterface] = []
+    open_attempted = threading.Event()
+
+    def open_next() -> None:
+        open_attempted.set()
+        opened.append(backend.CANFDInterface())
+
+    open_thread = threading.Thread(target=open_next, daemon=True)
+    open_thread.start()
+    assert open_attempted.wait(timeout=1.0)
+    assert not second_init_started.wait(timeout=0.05)
+    assert opened == []
+
+    allow_exit.set()
+    close_thread.join(timeout=1.0)
+    open_thread.join(timeout=1.0)
+    assert not close_thread.is_alive()
+    assert not open_thread.is_alive()
+    assert len(opened) == 1
+    assert second_init_started.is_set()
+    assert len(lib.LibCANbus_Init.calls) == 2
+
+    opened[0].close()
 
 
 def test_garbage_collection_releases_refcount(

@@ -10,6 +10,7 @@ cannot accidentally unblock an unrelated read on the same register.
 
 from __future__ import annotations
 
+import math
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -86,6 +87,8 @@ class O20Client:
         self._device_id = device_id
         self._frame_type = frame_type
         self._lock = threading.Lock()
+        self._send_condition = threading.Condition(self._lock)
+        self._sending_threads: dict[int, int] = {}
         self._transaction_lock = threading.Lock()
         # Guards multi-register tactile transactions. O20 splits each finger's
         # tactile payload across two independent registers (data1 + data2); if
@@ -96,15 +99,16 @@ class O20Client:
         self._tactile_lock = threading.Lock()
         self._pending: dict[tuple[int, int], _ResponseWaiter] = {}
         self._closed = False
-        # Prefer the dispatcher's O(1) filtered subscription when present
-        # (CANFDMessageDispatcher.subscribe_filter added in fix#141 to avoid
-        # fan-out across every client on a shared bus). Fall back to the
-        # broadcast subscribe contract for older dispatchers and test fakes.
+        self._message_callback = self._on_message
+        self._filter_callback = self._frame_matches_client
+        # Prefer the dispatcher's filtered subscription when present so only
+        # matching clients run the full callback/parser path. Fall back to the
+        # broadcast contract for older dispatchers and test fakes.
         subscribe_filter = getattr(dispatcher, "subscribe_filter", None)
         if subscribe_filter is not None:
-            subscribe_filter(self._frame_matches_client, self._on_message)
+            subscribe_filter(self._filter_callback, self._message_callback)
         else:
-            self._dispatcher.subscribe(self._on_message)
+            self._dispatcher.subscribe(self._message_callback)
 
     @property
     def device_id(self) -> int:
@@ -129,10 +133,8 @@ class O20Client:
             StateError: If the client is closed.
             ValidationError: If register or DLC is invalid.
         """
-        self._ensure_open()
-        self._dispatcher.send(
-            self._message(register=register, write=True, payload=payload, dlc=dlc)
-        )
+        message = self._message(register=register, write=True, payload=payload, dlc=dlc)
+        self._send_message(message)
 
     def read(self, *, register: int, timeout_ms: float) -> bytes:
         """Send an O20 register read and wait for the matching response payload.
@@ -151,7 +153,6 @@ class O20Client:
         """
         with self._transaction_lock:
             self._validate_timeout(timeout_ms)
-            self._ensure_open()
             protocol._validate_range(register, "register", 0, protocol.O20_REGISTER_MAX)
             request = self._message(
                 register=register,
@@ -162,9 +163,10 @@ class O20Client:
             key = (self._device_id, register)
             waiter = _ResponseWaiter()
             with self._lock:
+                self._ensure_open()
                 self._pending[key] = waiter
             try:
-                self._dispatcher.send(request)
+                self._send_message(request)
                 if not waiter.event.wait(timeout_ms / 1000):
                     raise TimeoutError(
                         f"No O20 response received within {timeout_ms:.0f}ms"
@@ -182,17 +184,26 @@ class O20Client:
 
     def close(self) -> None:
         """Unsubscribe from the dispatcher and wake any pending waiters."""
-        if self._closed:
-            return
-        self._closed = True
-        self._dispatcher.unsubscribe(self._on_message)
         error = StateError("O20 client is closed")
-        with self._lock:
+        current_thread = threading.get_ident()
+        with self._send_condition:
+            if self._closed:
+                return
+            self._closed = True
             pending = tuple(self._pending.values())
             self._pending.clear()
-        for waiter in pending:
-            waiter.error = error
-            waiter.event.set()
+            for waiter in pending:
+                waiter.error = error
+                waiter.event.set()
+            self._send_condition.wait_for(
+                lambda: (
+                    not any(
+                        thread_id != current_thread
+                        for thread_id in self._sending_threads
+                    )
+                )
+            )
+        self._dispatcher.unsubscribe(self._message_callback)
 
     @contextmanager
     def tactile_transaction(self) -> Iterator[None]:
@@ -227,6 +238,25 @@ class O20Client:
             frame_type=self._frame_type,
         )
 
+    def _send_message(self, message: CANFDMessage) -> None:
+        """Send only while open and let ``close`` drain reserved sends."""
+        current_thread = threading.get_ident()
+        with self._send_condition:
+            self._ensure_open()
+            self._sending_threads[current_thread] = (
+                self._sending_threads.get(current_thread, 0) + 1
+            )
+        try:
+            self._dispatcher.send(message)
+        finally:
+            with self._send_condition:
+                remaining = self._sending_threads[current_thread] - 1
+                if remaining:
+                    self._sending_threads[current_thread] = remaining
+                else:
+                    del self._sending_threads[current_thread]
+                self._send_condition.notify_all()
+
     def _on_message(self, message: CANFDMessage) -> None:
         if not message.is_extended_id:
             return
@@ -251,9 +281,8 @@ class O20Client:
     def _frame_matches_client(self, message: CANFDMessage) -> bool:
         """Predicate for ``dispatcher.subscribe_filter``.
 
-        Cheap pre-filter so the dispatcher only routes frames whose
-        ``device_id`` matches this client. On a shared bus with N O20 hands,
-        this turns the per-frame fan-out from O(N) into O(1).
+        Cheap pre-filter so only a client whose ``device_id`` matches runs the
+        full frame callback. The dispatcher still scans predicates.
         """
         if not message.is_extended_id:
             return False
@@ -268,5 +297,7 @@ class O20Client:
             raise StateError("O20 client is closed")
 
     def _validate_timeout(self, timeout_ms: float) -> None:
-        if timeout_ms <= 0:
-            raise ValidationError("timeout_ms must be positive")
+        if not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool):
+            raise ValidationError("timeout_ms must be int or float")
+        if not math.isfinite(timeout_ms) or timeout_ms <= 0:
+            raise ValidationError("timeout_ms must be finite and positive")

@@ -37,7 +37,9 @@ class TestL20liteAngle:
 
     def test_from_list_non_numeric(self):
         with pytest.raises(ValueError, match="must be float/int"):
-            L20liteAngle.from_list(["a"] + [50.0] * 9)
+            L20liteAngle.from_list(
+                ["a"] + [50.0] * 9  # ty: ignore[invalid-argument-type]
+            )
 
     def test_round_trip(self):
         angle = L20liteAngle.from_list(VALID_VALUES)
@@ -83,7 +85,9 @@ class TestL20liteSpeed:
 
     def test_from_list_non_numeric(self):
         with pytest.raises(ValueError, match="must be float/int"):
-            L20liteSpeed.from_list(["a"] + [50.0] * 9)
+            L20liteSpeed.from_list(
+                ["a"] + [50.0] * 9  # ty: ignore[invalid-argument-type]
+            )
 
     def test_round_trip(self):
         speed = L20liteSpeed.from_list(VALID_VALUES)
@@ -110,7 +114,9 @@ class TestL20liteTorque:
 
     def test_from_list_non_numeric(self):
         with pytest.raises(ValueError, match="must be float/int"):
-            L20liteTorque.from_list(["a"] + [50.0] * 9)
+            L20liteTorque.from_list(
+                ["a"] + [50.0] * 9  # ty: ignore[invalid-argument-type]
+            )
 
     def test_round_trip(self):
         torque = L20liteTorque.from_list(VALID_VALUES)

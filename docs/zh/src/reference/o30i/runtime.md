@@ -13,7 +13,7 @@ with O30i() as hand:
     hand.angle.set_angles([50.0] * 20, timeout_ms=1000)
 ```
 
-`0～100` 只归一化到协议字节 `0～255`，不是标定角度，也不承诺数值增大等于弯曲或张开。首次驱动新硬件时，应使用低速、低负载和小范围切片验证实际方向。
+实物验证确认 O30i 的百分比与原始字节反向换算：`0%`（张开端）对应 raw `255`，`100%`（闭合端）对应 raw `0`。百分比仍是逻辑归一化值，不是以度为单位的标定角度。
 
 原始字节 API：
 
@@ -24,6 +24,8 @@ with O30i() as hand:
     # 只改五指指尖：SDK 关节索引 15～19
     hand.angle.set_raw_slice(15, [0x80] * 5, timeout_ms=1000)
 ```
+
+原始 API 保持设备协议语义，不执行上述反转。对屈曲关节而言，raw 增大朝张开方向运动，raw 减小朝闭合方向运动；侧摆和横摆关节仍应按实际机械方向进行小幅验证。
 
 切片末端不能超过 SDK 关节索引 19。以下调用会抛出 `ValidationError`，不会发帧：
 
@@ -80,7 +82,7 @@ with O30i() as hand:
 
 ```python
 with O30i() as hand:
-    hand.motion_time.set_all_ticks(10)       # 100 ms
+    hand.motion_time.set_all_ticks(10)  # 100 ms
     hand.motion_time.set_milliseconds([100] * 20)
 
     data = hand.motion_time.get_blocking(timeout_ms=1000)
@@ -130,11 +132,13 @@ from linkerbot.hand.o30i import AngleEvent, SensorSource
 
 with O30i() as hand:
     stream = hand.stream(maxsize=100)
-    hand.start_polling({
-        SensorSource.ANGLE: 1 / 30,
-        SensorSource.CURRENT: 1 / 10,
-        SensorSource.TEMPERATURE: 1.0,
-    })
+    hand.start_polling(
+        {
+            SensorSource.ANGLE: 1 / 30,
+            SensorSource.CURRENT: 1 / 10,
+            SensorSource.TEMPERATURE: 1.0,
+        }
+    )
 
     for event in stream:
         if isinstance(event, AngleEvent):

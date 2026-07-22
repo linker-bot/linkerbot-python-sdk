@@ -124,18 +124,21 @@ def _lifecycle_release(key: str | None) -> None:
             return
         lib = _lifecycle_lib.pop(key, None)
         _lifecycle_refcount.pop(key, None)
-    if lib is None:
-        return
-    exit_fn = getattr(lib, "LibCANbus_Exit", None)
-    if exit_fn is None:
-        return
-    try:
-        status = exit_fn()
-    except Exception as error:
-        _logger.warning("LibCANbus_Exit raised: %s", error)
-        return
-    if status != CANFD_STATUS_OK:
-        _logger.warning("LibCANbus_Exit returned status %s", status)
+        if lib is None:
+            return
+        exit_fn = getattr(lib, "LibCANbus_Exit", None)
+        if exit_fn is None:
+            return
+        # Keep acquire/release serialized through the vendor Exit call. If the
+        # lock were released first, another thread could call Init and then have
+        # this stale Exit tear down the resources underneath its live interface.
+        try:
+            status = exit_fn()
+        except Exception as error:
+            _logger.warning("LibCANbus_Exit raised: %s", error)
+            return
+        if status != CANFD_STATUS_OK:
+            _logger.warning("LibCANbus_Exit returned status %s", status)
 
 
 def _lifecycle_snapshot() -> dict[str, int]:
@@ -207,7 +210,9 @@ class CANFDInterface:
     - Transition of the open/closed flag is guarded by ``_state_lock`` and
       atomically reflected in ``_closed_event``. Every public method consults
       the event at entry, so a close cleanly cancels future calls without
-      racing the per-direction locks.
+      racing the per-direction locks. ``_close_complete_event`` separately
+      records that device and process-level lifecycle cleanup has finished,
+      allowing concurrent ``close()`` callers to wait for the owner.
 
     Close contract (mandatory ordering, encoded in :meth:`close`):
 
@@ -218,7 +223,7 @@ class CANFDInterface:
        wait until the vendor call returns. With send timeout 10 ms and
        receive timeout 10 ms, the worst-case drain is ~20 ms.
     3. Call ``CAN_CloseDevice`` exactly once.
-    4. Release the lifecycle refcount.
+    4. Release the lifecycle refcount and notify concurrent close callers.
 
     When a dispatcher owns the interface, ``dispatcher.stop()`` joins both
     worker threads before calling ``close()``, so steps 2 sees no contention.
@@ -255,10 +260,12 @@ class CANFDInterface:
         self._rx_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._closed_event = threading.Event()
+        self._close_complete_event = threading.Event()
         # Marks "uninitialized" before _open returns; flipped to False on
         # successful open and consulted by close to short-circuit a double-
         # close on a never-opened instance.
         self._closed_event.set()
+        self._close_complete_event.set()
         self._lifecycle_key: str | None = None
         self._lib = _load_library(library_path)
         _bind_signatures(self._lib)
@@ -314,20 +321,30 @@ class CANFDInterface:
         status = self._lib.CAN_OpenDevice(self._device_index, self._channel_index)
         if status != CANFD_STATUS_OK:
             raise CANError(f"CAN_OpenDevice failed with status {status}")
-        # mark "open" so subsequent send/receive can proceed; _open is only
-        # called from __init__ before workers exist.
-        self._closed_event.clear()
-
-        config = self._build_ctypes_config()
-        status = self._lib.CANFD_Init(
-            self._device_index, self._channel_index, ctypes.byref(config)
-        )
-        if status != CANFD_STATUS_OK:
+        try:
+            config = self._build_ctypes_config()
+            status = self._lib.CANFD_Init(
+                self._device_index, self._channel_index, ctypes.byref(config)
+            )
+            if status != CANFD_STATUS_OK:
+                raise CANError(f"CANFD_Init failed with status {status}")
+        except BaseException:
             try:
                 self._lib.CAN_CloseDevice(self._device_index, self._channel_index)
+            except Exception as close_error:
+                _logger.warning(
+                    "CAN_CloseDevice failed while rolling back CANFD_Init: %s",
+                    close_error,
+                )
             finally:
                 self._closed_event.set()
-            raise CANError(f"CANFD_Init failed with status {status}")
+            raise
+
+        # _open is called from __init__ before the object is published. Clear
+        # completion first so any later close owner always has an incomplete
+        # event to publish when cleanup finishes.
+        self._close_complete_event.clear()
+        self._closed_event.clear()
 
     def _build_ctypes_config(self) -> CanFDConfig:
         return CanFDConfig(
@@ -373,8 +390,11 @@ class CANFDInterface:
                 CANFD_TRANSMIT_FRAME_COUNT,
                 timeout_ms,
             )
-            if sent <= 0:
-                raise CANError(f"CANFD_Transmit failed with status {sent}")
+            if sent != CANFD_TRANSMIT_FRAME_COUNT:
+                raise CANError(
+                    "CANFD_Transmit failed: expected "
+                    f"{CANFD_TRANSMIT_FRAME_COUNT} frame, got {sent}"
+                )
 
     def send_batch(
         self,
@@ -480,6 +500,11 @@ class CANFDInterface:
                 raise CANError(f"CANFD_Receive failed with status {received}")
             if received == CANFD_STATUS_OK:
                 return []
+            if received > max_frames:
+                raise CANError(
+                    "CANFD_Receive returned more frames than requested: "
+                    f"requested {max_frames}, got {received}"
+                )
             return [self._frame_to_message(buffer[i]) for i in range(received)]
 
     def read_dev_info(self) -> dict[str, str]:
@@ -515,37 +540,54 @@ class CANFDInterface:
            will return within its bounded timeout (≤10 ms each) and release
            the lock; close then proceeds.
         3. Call ``CAN_CloseDevice``.
-        4. Release lifecycle refcount.
+        4. Release lifecycle refcount and notify any concurrent close callers.
 
         ``CAN_CloseDevice`` failure is surfaced as ``CANError``, but step 4
         runs regardless so the Init reference is never permanently leaked.
         """
-        # Step 1: atomic state transition under state lock. Snapshot whether
-        # we owned the open-to-closed transition so we don't double-close.
+        # Step 1: atomically select one cleanup owner. Other close callers must
+        # wait for the owner rather than treating "closing" as "closed" and
+        # returning while vendor or lifecycle cleanup is still in progress.
         with self._state_lock:
             if self._closed_event.is_set():
-                return
-            self._closed_event.set()
+                owns_close = False
+            else:
+                self._closed_event.set()
+                owns_close = True
 
-        # Step 2: drain. Acquiring then immediately releasing each direction
-        # lock waits out any in-flight vendor call.
-        with self._tx_lock:
-            pass
-        with self._rx_lock:
-            pass
+        if not owns_close:
+            self._close_complete_event.wait()
+            return
 
-        # Step 3: actually close the vendor side.
-        close_status = self._lib.CAN_CloseDevice(
-            self._device_index, self._channel_index
-        )
+        try:
+            # Step 2: drain. Acquiring then immediately releasing each
+            # direction lock waits out any in-flight vendor call.
+            with self._tx_lock:
+                pass
+            with self._rx_lock:
+                pass
 
-        # Step 4: lifecycle release (always, even on close failure).
-        if self._lifecycle_key is not None:
-            _lifecycle_release(self._lifecycle_key)
-            self._lifecycle_key = None
+            # Step 3: actually close the vendor side.
+            try:
+                close_status = self._lib.CAN_CloseDevice(
+                    self._device_index, self._channel_index
+                )
+            except Exception as error:
+                raise CANError(f"CAN_CloseDevice failed: {error}") from error
+            finally:
+                # Step 4: lifecycle release, including when the vendor call
+                # raises. Completion is not published until this returns, so
+                # a waiter can safely acquire/reopen the same library.
+                if self._lifecycle_key is not None:
+                    _lifecycle_release(self._lifecycle_key)
+                    self._lifecycle_key = None
 
-        if close_status != CANFD_STATUS_OK:
-            raise CANError(f"CAN_CloseDevice failed with status {close_status}")
+            if close_status != CANFD_STATUS_OK:
+                raise CANError(f"CAN_CloseDevice failed with status {close_status}")
+        finally:
+            # Every owner exit path, including vendor and lifecycle exceptions,
+            # must wake callers already waiting in close().
+            self._close_complete_event.set()
 
     def _ensure_open(self) -> None:
         if self._closed_event.is_set():
@@ -707,7 +749,9 @@ def _default_library_name() -> str:
 
 def _ctypes_loader() -> Any:
     if platform.system() == "Windows":
-        return getattr(ctypes, "WinDLL")
+        # WinDLL is intentionally resolved lazily because ctypes does not
+        # expose it on non-Windows hosts where this module is type-checked.
+        return getattr(ctypes, "WinDLL")  # noqa: B009
     return ctypes.CDLL
 
 

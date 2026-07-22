@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from linkerbot.exceptions import CANError
+from linkerbot.exceptions import CANError, ValidationError
 
 from .ctypes_backend import CANFDInterface
 from .types import CANFDBackend, CANFDConfigOptions, CANFDMessage
@@ -31,8 +31,7 @@ class CANFDMessageDispatcher:
     # Default off: the vendor USB stack already paces transmits, and any
     # positive interval ends up sleeping the send thread. Subclasses or callers
     # that want explicit pacing can override this class attribute. The legacy
-    # 300 µs busy-wait has been removed entirely — see Commit 2 in the redesign
-    # plan for rationale.
+    # 300 us CPU busy-wait has been removed entirely.
     SEND_INTERVAL_S = 0.0
     # Maximum frames coalesced into a single vendor call when the backend
     # exposes ``send_batch``. 32 leaves substantial headroom under the
@@ -59,16 +58,27 @@ class CANFDMessageDispatcher:
         using ``device_index`` / ``channel_index`` / ``library_path`` / ``config``,
         preserving the original behaviour.
         """
-        self._interface: CANFDBackend = interface or CANFDInterface(
-            device_index=device_index,
-            channel_index=channel_index,
-            library_path=library_path,
-            config=config,
+        if (
+            not isinstance(max_consecutive_errors, int)
+            or isinstance(max_consecutive_errors, bool)
+            or max_consecutive_errors <= 0
+        ):
+            raise ValidationError("max_consecutive_errors must be a positive int")
+
+        self._interface: CANFDBackend = (
+            interface
+            if interface is not None
+            else CANFDInterface(
+                device_index=device_index,
+                channel_index=channel_index,
+                library_path=library_path,
+                config=config,
+            )
         )
         self._subscribers: list[Callable[[CANFDMessage], None]] = []
-        # subscribe_filter targets: only invoked when the predicate returns
-        # True. Avoids O(N) fan-out when N L30Client objects share one bus —
-        # each client pre-filters by (dst_id, src_id) in O(1).
+        # subscribe_filter targets are only invoked when their predicate
+        # returns True. Predicates are still scanned linearly, but unrelated
+        # clients avoid the more expensive frame parsing and callback path.
         self._filtered_subscribers: list[
             tuple[
                 Callable[[CANFDMessage], bool],
@@ -85,6 +95,9 @@ class CANFDMessageDispatcher:
         self._max_consecutive_errors = max_consecutive_errors
         self._bus_error: Exception | None = None
         self._error_reported = False
+        self._error_lock = threading.Lock()
+        self._close_lock = threading.Lock()
+        self._interface_closed = False
         self._recv_thread = threading.Thread(
             target=self._recv_loop, daemon=True, name="CANFDMessageDispatcher.recv_loop"
         )
@@ -100,11 +113,12 @@ class CANFDMessageDispatcher:
         return self._interface
 
     def _handle_bus_error(self, error: Exception) -> None:
-        if self._error_reported:
-            return
-        self._error_reported = True
-        self._running = False
-        self._bus_error = error
+        with self._error_lock:
+            if self._error_reported:
+                return
+            self._error_reported = True
+            self._running = False
+            self._bus_error = error
         self._logger.error(f"CANFD bus fatal error, stopping dispatcher: {error}")
         if self._on_bus_error is not None:
             try:
@@ -177,8 +191,7 @@ class CANFDMessageDispatcher:
         ``callback`` is invoked only when ``predicate(message)`` returns
         ``True``. Predicates are evaluated by the receive thread, so they
         must be cheap and non-blocking. The L30 client uses this to filter
-        by ``(dst_id, src_id)`` before doing the full frame parse, which
-        keeps multi-hand dispatch O(1) per hand instead of O(N).
+        by ``(dst_id, src_id)`` before doing the full frame parse.
         """
         with self._subscribers_lock:
             entry = (predicate, callback)
@@ -193,7 +206,7 @@ class CANFDMessageDispatcher:
             self._filtered_subscribers = [
                 (predicate, existing)
                 for predicate, existing in self._filtered_subscribers
-                if existing is not callback
+                if existing != callback
             ]
 
     def _send_loop(self) -> None:
@@ -274,8 +287,9 @@ class CANFDMessageDispatcher:
         If ``stop()`` is invoked from inside a dispatcher-managed callback,
         the calling thread is skipped to avoid join-self deadlock.
         """
-        self._error_reported = True
-        self._running = False
+        with self._error_lock:
+            self._error_reported = True
+            self._running = False
         current = threading.current_thread()
         for thread in (self._send_thread, self._recv_thread):
             if thread is current:
@@ -289,12 +303,15 @@ class CANFDMessageDispatcher:
                         THREAD_JOIN_TIMEOUT_S,
                     )
                     return
-        try:
-            self._interface.close()
-        except Exception as error:
-            # Surface as warning rather than swallow silently; the SDK has
-            # already accepted the shutdown so we don't propagate the error.
-            self._logger.warning("CANFD interface close failed: %s", error)
+        with self._close_lock:
+            if not self._interface_closed:
+                self._interface_closed = True
+                try:
+                    self._interface.close()
+                except Exception as error:
+                    # Surface as warning rather than swallow silently; the SDK has
+                    # already accepted the shutdown so we don't propagate the error.
+                    self._logger.warning("CANFD interface close failed: %s", error)
         with self._subscribers_lock:
             self._subscribers.clear()
             self._filtered_subscribers.clear()

@@ -319,7 +319,7 @@ class SpeedManager:
         # All frames received -- merge into L25Speed
         kwargs: dict[str, float] = {}
         for frame_cmd, fields in self._FRAME_MAP.items():
-            for field, value in zip(fields, self._pending[frame_cmd]):
+            for field, value in zip(fields, self._pending[frame_cmd], strict=True):
                 if field is not None:
                     kwargs[field] = value
 

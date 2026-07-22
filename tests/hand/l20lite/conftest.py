@@ -23,6 +23,7 @@ L20LITE_TEST_ORDER: dict[str, int] = {
     "test_force_sensor": 12,
     "test_stress": 13,
 }
+_NON_HARDWARE_TEST_MODULES = frozenset({"test_angle_mapping", "test_validation"})
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -34,6 +35,8 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             indexed.append((item, (0, idx, 0)))
         else:
             stem = item.path.stem
+            if stem not in _NON_HARDWARE_TEST_MODULES:
+                item.add_marker(pytest.mark.hardware)
             rank = L20LITE_TEST_ORDER.get(stem)
             if rank is not None:
                 indexed.append((item, (1, rank, 0)))

@@ -128,12 +128,20 @@ def test_periodic_reports_update_all_sensor_managers() -> None:
     _response(dispatcher, 0x00808008, bytes([0x11, 0]) + bytes(range(17)))
     _response(dispatcher, 0x0080A008, bytes([0x11, 0]) + bytes([0b00101111] * 17))
 
-    assert speed.get_snapshot().speeds == (3,) * 17
-    assert current.get_snapshot().currents == (4,) * 17
-    assert temperature.get_snapshot().temperatures == tuple(range(17))
-    assert fault.get_snapshot().faults == (0b00101111,) * 17
-    assert fault.get_snapshot().has_voltage_fault(0)
-    assert fault.get_snapshot().has_load_fault(0)
+    speed_snapshot = speed.get_snapshot()
+    current_snapshot = current.get_snapshot()
+    temperature_snapshot = temperature.get_snapshot()
+    fault_snapshot = fault.get_snapshot()
+    assert speed_snapshot is not None
+    assert current_snapshot is not None
+    assert temperature_snapshot is not None
+    assert fault_snapshot is not None
+    assert speed_snapshot.speeds == (3,) * 17
+    assert current_snapshot.currents == (4,) * 17
+    assert temperature_snapshot.temperatures == tuple(range(17))
+    assert fault_snapshot.faults == (0b00101111,) * 17
+    assert fault_snapshot.has_voltage_fault(0)
+    assert fault_snapshot.has_load_fault(0)
 
 
 def test_force_sensor_reads_all_fingers_sequentially() -> None:
@@ -398,6 +406,97 @@ def test_client_uses_subscribe_filter_when_available() -> None:
     assert predicate(matching)
     assert not predicate(non_matching)
 
+    client = L30Client(dispatcher, node_id=2, host_id=0)
+    assert len(dispatcher.filtered_subscribers) == 2
+    client.close()
+    assert len(dispatcher.filtered_subscribers) == 1
+
+
+def test_close_between_frame_build_and_waiter_registration_fails_immediately(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatcher = FakeDispatcher()
+    client = L30Client(dispatcher, node_id=1, host_id=0)
+    build_message = client._message
+
+    def close_during_message_build(**kwargs) -> CANFDMessage:
+        message = build_message(**kwargs)
+        client.close()
+        return message
+
+    monkeypatch.setattr(client, "_message", close_during_message_build)
+
+    with pytest.raises(StateError, match="closed"):
+        client.read(
+            parent=protocol.L30_PARENT_QUERY,
+            subcmd=protocol.L30_SUBCMD_POSITION,
+            timeout_ms=1000,
+        )
+
+    assert dispatcher.sent == []
+
+
+def test_close_after_waiter_registration_prevents_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatcher = FakeDispatcher()
+    client = L30Client(dispatcher, node_id=1, host_id=0)
+    send_message = client._send_message
+    waiter_registered = threading.Event()
+    release_request = threading.Event()
+    close_returned = threading.Event()
+    errors: list[Exception] = []
+
+    def pause_before_send(message: CANFDMessage) -> None:
+        waiter_registered.set()
+        release_request.wait()
+        send_message(message)
+
+    def read() -> None:
+        try:
+            client.read(
+                parent=protocol.L30_PARENT_QUERY,
+                subcmd=protocol.L30_SUBCMD_POSITION,
+                timeout_ms=1000,
+            )
+        except Exception as error:
+            errors.append(error)
+
+    monkeypatch.setattr(client, "_send_message", pause_before_send)
+    request_thread = threading.Thread(target=read)
+    request_thread.start()
+    assert waiter_registered.wait(timeout=1)
+    with client._lock:
+        assert client._pending
+
+    close_thread = threading.Thread(
+        target=lambda: (client.close(), close_returned.set())
+    )
+    close_thread.start()
+    completed_before_release = close_returned.wait(timeout=1)
+    release_request.set()
+    close_thread.join(timeout=1)
+    request_thread.join(timeout=1)
+
+    assert completed_before_release
+    assert not close_thread.is_alive()
+    assert not request_thread.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], StateError)
+    assert dispatcher.sent == []
+
+
+@pytest.mark.parametrize("timeout_ms", [True, float("nan"), float("inf")])
+def test_client_rejects_non_finite_or_boolean_timeout(timeout_ms: float) -> None:
+    client = L30Client(FakeDispatcher(), node_id=1, host_id=0)
+
+    with pytest.raises(ValidationError):
+        client.read(
+            parent=protocol.L30_PARENT_QUERY,
+            subcmd=protocol.L30_SUBCMD_POSITION,
+            timeout_ms=timeout_ms,
+        )
+
 
 def test_client_falls_back_to_subscribe_without_filter() -> None:
     """A dispatcher without ``subscribe_filter`` must still receive the
@@ -410,13 +509,13 @@ def test_client_falls_back_to_subscribe_without_filter() -> None:
             self.sent: list = []
             self.stopped = False
 
-        def send(self, message):  # noqa: D401, ANN001 - test scaffolding
+        def send(self, message):
             self.sent.append(message)
 
-        def subscribe(self, callback):  # noqa: ANN001 - test scaffolding
+        def subscribe(self, callback):
             self.subscribed.append(callback)
 
-        def unsubscribe(self, callback):  # noqa: ANN001 - test scaffolding
+        def unsubscribe(self, callback):
             if callback in self.subscribed:
                 self.subscribed.remove(callback)
 

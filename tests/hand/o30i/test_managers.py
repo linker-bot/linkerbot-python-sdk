@@ -59,6 +59,19 @@ def test_angle_reads_actual_and_target_vectors() -> None:
     assert dispatcher.sent[1].data == bytes.fromhex("81 00 24")
 
 
+def test_angle_percentage_write_reverses_o30i_raw_direction() -> None:
+    dispatcher = FakeO30iDispatcher()
+
+    with O30i(dispatcher=dispatcher) as hand:
+        hand.angle.set_angles([5.0] * 20)
+
+    assert [(write.sub_index, write.payload) for write in dispatcher.writes] == [
+        (0, b"\xf2"),
+        (5, b"\xf2" * 10),
+        (16, b"\xf2" * 9),
+    ]
+
+
 def test_full_runtime_writes_touch_only_physical_joint_slots() -> None:
     dispatcher = FakeO30iDispatcher()
 

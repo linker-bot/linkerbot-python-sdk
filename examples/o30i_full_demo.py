@@ -97,7 +97,10 @@ def parse_args() -> argparse.Namespace:
         "--delta-raw",
         type=int,
         default=8,
-        help="相对当前位置的原始字节增量，建议绝对值不超过 16",
+        help=(
+            "相对当前位置的原始字节增量；正值朝 0%% 逻辑端，负值朝 100%% 逻辑端，"
+            "建议绝对值不超过 16"
+        ),
     )
     parser.add_argument("--hold-seconds", type=float, default=1.0)
     parser.add_argument(
@@ -151,7 +154,9 @@ def run() -> None:
         for state_name, reader in _runtime_readers(hand, args.timeout_ms):
             _step(
                 f"读取 {state_name}",
-                lambda reader=reader: _show_runtime_state(state_name, reader()),
+                lambda reader=reader, state_name=state_name: _show_runtime_state(
+                    state_name, reader()
+                ),
                 strict=args.strict,
             )
         _step(
@@ -224,9 +229,9 @@ def _show_joint_definitions() -> None:
     for index, spec in enumerate(O30I_JOINT_SPECS):
         print(
             f"  {index:2d}  {spec.id:8s}  {spec.name:6s}  "
-            f"SI={spec.wire_slot:02d}  default={spec.default:3d}"
+            f"SI={spec.wire_slot:02d}  default_raw={spec.default:3d}"
         )
-    print("  default raw:", list(O30I_DEFAULT_RAW_VALUES))
+    print("  default_raw:", list(O30I_DEFAULT_RAW_VALUES))
 
 
 def _show_device_info(hand: O30i, timeout_ms: float) -> None:
@@ -252,7 +257,10 @@ def _show_angles(hand: O30i, timeout_ms: float) -> None:
     target = hand.angle.get_target_blocking(timeout_ms=timeout_ms)
     _print_joint_values("actual raw", actual.to_raw())
     _print_joint_values("target raw", target.to_raw())
-    print("  actual percent:", [round(value, 2) for value in actual.to_list()])
+    print(
+        "  SDK percent (0=open, 100=closed):",
+        [round(value, 2) for value in actual.to_list()],
+    )
 
 
 def _show_i16_angles(hand: O30i, timeout_ms: float) -> None:

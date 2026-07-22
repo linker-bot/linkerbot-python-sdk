@@ -101,7 +101,7 @@ with L30Bus(device_index=0, channel_index=0, auto_start_periodic=False) as bus:
     hands = bus.connect([1, 2, 3])
 
     for hand in hands:
-        print("NodeID：", hand.node_id)
+        print("NodeID:", hand.node_id)
         print("角度：", hand.angle.get_blocking(timeout_ms=1000).angles.to_list())
 ```
 
@@ -153,8 +153,14 @@ with ExitStack() as stack:
     hand_on_module0 = bus0.create_hand(1)
     hand_on_module1 = bus1.create_hand(1)
 
-    print("模块 0 / 节点 1 手型：", hand_on_module0.version.get_hand_side(timeout_ms=1000).value)
-    print("模块 1 / 节点 1 手型：", hand_on_module1.version.get_hand_side(timeout_ms=1000).value)
+    print(
+        "模块 0 / 节点 1 手型：",
+        hand_on_module0.version.get_hand_side(timeout_ms=1000).value,
+    )
+    print(
+        "模块 1 / 节点 1 手型：",
+        hand_on_module1.version.get_hand_side(timeout_ms=1000).value,
+    )
 ```
 
 应用层统一管理时，建议使用 `(device_index, channel_index, node_id)` 或业务别名作为 key：

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -82,6 +83,8 @@ class HandProtocolV1:
         self._response_id = response_id
         self._frame_type = frame_type
         self._state_lock = threading.Lock()
+        self._send_condition = threading.Condition(self._state_lock)
+        self._sending_threads: dict[int, int] = {}
         self._transaction_lock = threading.RLock()
         self._pending: _PendingResponse | None = None
         self._closed = False
@@ -167,16 +170,25 @@ class HandProtocolV1:
 
     def close(self) -> None:
         """Unsubscribe and wake a pending request. Idempotent."""
-        with self._state_lock:
+        current_thread = threading.get_ident()
+        with self._send_condition:
             if self._closed:
                 return
             self._closed = True
             pending = self._pending
             self._pending = None
+            if pending is not None:
+                pending.error = StateError("HandProtocolV1 client is closed")
+                pending.event.set()
+            self._send_condition.wait_for(
+                lambda: (
+                    not any(
+                        thread_id != current_thread
+                        for thread_id in self._sending_threads
+                    )
+                )
+            )
         self._dispatcher.unsubscribe(self._message_callback)
-        if pending is not None:
-            pending.error = StateError("HandProtocolV1 client is closed")
-            pending.event.set()
 
     def _exchange(
         self,
@@ -196,7 +208,7 @@ class HandProtocolV1:
                 self._ensure_open()
                 self._pending = pending
             try:
-                self._dispatcher.send(message)
+                self._send_message(message)
                 if not pending.event.wait(timeout_seconds):
                     raise TimeoutError(
                         "No complete HandProtocol response for "
@@ -211,7 +223,30 @@ class HandProtocolV1:
                     if self._pending is pending:
                         self._pending = None
 
+    def _send_message(self, message: CANFDMessage) -> None:
+        """Send only while open and let ``close`` drain reserved sends."""
+        current_thread = threading.get_ident()
+        with self._send_condition:
+            self._ensure_open()
+            self._sending_threads[current_thread] = (
+                self._sending_threads.get(current_thread, 0) + 1
+            )
+        try:
+            self._dispatcher.send(message)
+        finally:
+            with self._send_condition:
+                remaining = self._sending_threads[current_thread] - 1
+                if remaining:
+                    self._sending_threads[current_thread] = remaining
+                else:
+                    del self._sending_threads[current_thread]
+                self._send_condition.notify_all()
+
     def _on_message(self, message: CANFDMessage) -> None:
+        # Filter again for legacy dispatchers that only support broadcast
+        # subscriptions. Filter-aware dispatchers already perform this check.
+        if not self._frame_matches_endpoint(message):
+            return
         try:
             frame = protocol.decode_frame(message.data)
         except protocol.HandProtocolError as error:
@@ -293,6 +328,6 @@ class HandProtocolV1:
 def _validate_timeout(timeout_ms: float) -> float:
     if not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool):
         raise ValidationError("timeout_ms must be int or float")
-    if timeout_ms <= 0:
-        raise ValidationError("timeout_ms must be positive")
+    if not math.isfinite(timeout_ms) or timeout_ms <= 0:
+        raise ValidationError("timeout_ms must be finite and positive")
     return float(timeout_ms) / 1000

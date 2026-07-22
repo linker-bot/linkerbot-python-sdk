@@ -31,4 +31,4 @@ def test_l30_hardware_angle_polling_updates_snapshot() -> None:
         finally:
             hand.stop_polling()
 
-    assert_joint_tuple(tuple(angle.angles))
+    assert_joint_tuple(tuple(angle.angles.to_raw()))

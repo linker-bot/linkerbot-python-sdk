@@ -11,8 +11,8 @@ from pathlib import Path
 
 import can
 
-from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import ValidationError
+from linkerbot.hand._can_protocol import CANDispatcherLike
 from linkerbot.hand.angle_mapping import AngleMappingManager, validate_raw_values
 from linkerbot.relay import DataRelay
 
@@ -170,7 +170,7 @@ class AngleManager:
     def __init__(
         self,
         arbitration_id: int,
-        dispatcher: CANMessageDispatcher,
+        dispatcher: CANDispatcherLike,
         angle_mapping_path: str | Path | None = None,
         side: str | None = None,
         interface_name: str | None = None,
@@ -348,7 +348,7 @@ class AngleManager:
         # All frames received — merge into L20liteAngle
         kwargs: dict[str, float] = {}
         for frame_cmd, fields in self._FRAME_MAP.items():
-            for field, value in zip(fields, self._pending[frame_cmd]):
+            for field, value in zip(fields, self._pending[frame_cmd], strict=True):
                 kwargs[field] = value
 
         angles = L20liteAngle(**kwargs)

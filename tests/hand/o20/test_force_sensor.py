@@ -7,7 +7,11 @@ from linkerbot.comm.canfd import CANFDMessage
 from linkerbot.exceptions import ValidationError
 from linkerbot.hand.o20 import protocol
 from linkerbot.hand.o20.client import O20Client
-from linkerbot.hand.o20.force_sensor import Finger, ForceSensorManager
+from linkerbot.hand.o20.force_sensor import (
+    Finger,
+    ForceSensorManager,
+    O20FingerForceData,
+)
 from tests.hand.o20.fakes import FakeDispatcher
 
 pytestmark = [pytest.mark.o20, pytest.mark.canfd]
@@ -99,9 +103,9 @@ def test_tactile_transaction_serializes_paired_reads() -> None:
 
     # Two distinct acquisition rounds. If serialization works, each thread
     # sees a self-consistent (data1, data2) pair from ONE round.
-    round_a_data1 = bytes([1]) + b"\x00" * 63     # online=1, all zeros
+    round_a_data1 = bytes([1]) + b"\x00" * 63  # online=1, all zeros
     round_a_data2 = b"\x00" * 9
-    round_b_data1 = bytes([1]) + b"\xff" * 63     # online=1, all 0xFF
+    round_b_data1 = bytes([1]) + b"\xff" * 63  # online=1, all 0xFF
     round_b_data2 = b"\xff" * 9
 
     call_count = {"data1": 0}
@@ -146,14 +150,12 @@ def test_tactile_transaction_serializes_paired_reads() -> None:
     client = O20Client(dispatcher, device_id=0x01)
     manager = ForceSensorManager(client)
 
-    results: dict[str, object] = {}
+    results: dict[str, O20FingerForceData] = {}
 
     def read_thumb(key: str) -> None:
         results[key] = manager.get_finger(Finger.THUMB).get_blocking(timeout_ms=1000)
 
-    threads = [
-        threading.Thread(target=read_thumb, args=(f"t{i}",)) for i in range(2)
-    ]
+    threads = [threading.Thread(target=read_thumb, args=(f"t{i}",)) for i in range(2)]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -163,10 +165,9 @@ def test_tactile_transaction_serializes_paired_reads() -> None:
     # all-0xFF. If the tactile lock is missing, one thread would see e.g.
     # data1=round A (zeros) + data2=round B (0xFF) — a mixed matrix.
     for key, result in results.items():
-        matrix = result.values  # type: ignore[attr-defined]
+        matrix = result.values
         first_byte = int(matrix.flat[0])
         assert bool((matrix == first_byte).all()), (
             f"{key}: cross-sampled matrix (first={first_byte}, unique="
             f"{sorted(set(matrix.flat))}) — tactile lock is missing"
         )
-

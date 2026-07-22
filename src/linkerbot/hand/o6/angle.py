@@ -11,8 +11,8 @@ from pathlib import Path
 
 import can
 
-from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import ValidationError
+from linkerbot.hand._can_protocol import CANDispatcherLike
 from linkerbot.hand.angle_mapping import AngleMappingManager, validate_raw_values
 from linkerbot.relay import DataRelay
 
@@ -147,7 +147,7 @@ class AngleManager:
     def __init__(
         self,
         arbitration_id: int,
-        dispatcher: CANMessageDispatcher,
+        dispatcher: CANDispatcherLike,
         angle_mapping_path: str | Path | None = None,
         side: str | None = None,
         interface_name: str | None = None,

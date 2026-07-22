@@ -7,7 +7,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from linkerbot.comm.canfd import CANFDConfigOptions, CANFDMessageDispatcher
-from linkerbot.exceptions import ValidationError
+from linkerbot.exceptions import CANError, ValidationError
 
 from . import protocol
 from .client import L30DispatcherLike
@@ -51,6 +51,10 @@ class L30Bus:
         self._host_id = host_id
         self._auto_start_periodic = auto_start_periodic
         self._owns_dispatcher = dispatcher is None
+        self._hands_by_node_id: dict[int, L30] = {}
+        self._hand_order: list[int] = []
+        self._closed = False
+        self._bus_error: Exception | None = None
         if dispatcher is None:
             dispatcher = CANFDMessageDispatcher(
                 device_index=device_index,
@@ -60,10 +64,10 @@ class L30Bus:
                 on_bus_error=self._on_bus_error,
             )
         self._dispatcher = dispatcher
-        self._hands_by_node_id: dict[int, L30] = {}
-        self._hand_order: list[int] = []
-        self._closed = False
-        self._bus_error: Exception | None = None
+        if self._bus_error is not None:
+            if self._owns_dispatcher:
+                dispatcher.stop()
+            raise CANError(f"CANFD bus unavailable: {self._bus_error}")
 
     @property
     def hands(self) -> tuple[L30, ...]:
@@ -99,7 +103,7 @@ class L30Bus:
                         ),
                     )
                 )
-        except Exception:
+        except BaseException:
             for hand in created:
                 hand.close()
                 self._hands_by_node_id.pop(hand.node_id, None)
@@ -132,7 +136,9 @@ class L30Bus:
         for node_id in reversed(self._hand_order):
             self._hands_by_node_id[node_id].close()
         if self._owns_dispatcher:
-            self._dispatcher.stop()
+            dispatcher = getattr(self, "_dispatcher", None)
+            if dispatcher is not None:
+                dispatcher.stop()
         self._closed = True
 
     def close(self) -> None:

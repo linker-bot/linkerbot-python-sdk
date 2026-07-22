@@ -24,4 +24,4 @@ def test_l30_hardware_open_and_read_angle_snapshot() -> None:
     with open_l30() as hand:
         angle = hand.angle.get_blocking(timeout_ms=settings.timeout_ms)
 
-    assert_joint_tuple(tuple(angle.angles))
+    assert_joint_tuple(tuple(angle.angles.to_raw()))

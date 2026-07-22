@@ -71,8 +71,10 @@ def test_angle_read_response_allows_out_of_command_range_sensor_values() -> None
     )
     thread.join(timeout=1)
 
+    snapshot = angle.get_snapshot()
     assert result[0].angles.to_raw() == values
-    assert angle.get_snapshot().angles.to_raw() == values
+    assert snapshot is not None
+    assert snapshot.angles.to_raw() == values
 
 
 def test_current_temperature_read_responses_update_snapshots() -> None:
@@ -97,10 +99,14 @@ def test_current_temperature_read_responses_update_snapshots() -> None:
     _response(dispatcher, 0x00A08008, bytes([0x11, 0x00, 0x00]) + bytes(range(17)))
     thread.join(timeout=1)
 
+    current_snapshot = current.get_snapshot()
+    temperature_snapshot = temperature.get_snapshot()
     assert current_result[0].currents == (2,) * 17
-    assert current.get_snapshot().currents == (2,) * 17
+    assert current_snapshot is not None
+    assert current_snapshot.currents == (2,) * 17
     assert temperature_result[0].temperatures == tuple(range(17))
-    assert temperature.get_snapshot().temperatures == tuple(range(17))
+    assert temperature_snapshot is not None
+    assert temperature_snapshot.temperatures == tuple(range(17))
 
 
 def test_report_config_and_active_report_update_angle_snapshot() -> None:
@@ -121,7 +127,9 @@ def test_report_config_and_active_report_update_angle_snapshot() -> None:
     assert dispatcher.sent[0].dlc == 0x0A
 
     _response(dispatcher, 0x00802008, bytes([0x22, 0x00]) + b"\x00\x05" * 17)
-    assert angle.get_snapshot().angles.to_raw() == [5] * 17
+    snapshot = angle.get_snapshot()
+    assert snapshot is not None
+    assert snapshot.angles.to_raw() == [5] * 17
 
 
 def test_force_sensor_assembles_tactile_matrix() -> None:

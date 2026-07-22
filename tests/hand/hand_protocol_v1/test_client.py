@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 import pytest
 
@@ -112,6 +112,38 @@ def test_frames_with_wrong_id_or_extended_flag_do_not_satisfy_request() -> None:
     assert client.read(main_index=1, length=1) == b"\xcc"
 
 
+def test_legacy_broadcast_dispatcher_still_filters_endpoint() -> None:
+    class LegacyDispatcher:
+        def __init__(self) -> None:
+            self.callback: Callable[[CANFDMessage], None] | None = None
+
+        def subscribe(self, callback: Callable[[CANFDMessage], None]) -> None:
+            self.callback = callback
+
+        def unsubscribe(self, callback: Callable[[CANFDMessage], None]) -> None:
+            if self.callback == callback:
+                self.callback = None
+
+        def send(self, message: CANFDMessage) -> None:
+            assert self.callback is not None
+            self.callback(_response(bytes.fromhex("01 00 01 AA"), arbitration_id=0x402))
+            self.callback(
+                CANFDMessage(
+                    arbitration_id=0x401,
+                    data=bytes.fromhex("01 00 01 BB"),
+                    is_extended_id=True,
+                )
+            )
+            self.callback(_response(bytes.fromhex("01 00 01 CC")))
+
+        def stop(self) -> None:
+            pass
+
+    client = HandProtocolV1(LegacyDispatcher())
+
+    assert client.read(main_index=1, length=1) == b"\xcc"
+
+
 def test_read_ignores_response_with_wrong_rts_bit() -> None:
     def responder(message: CANFDMessage) -> Iterable[CANFDMessage]:
         yield _response(bytes.fromhex("81 00 01 AA"))
@@ -136,7 +168,7 @@ def test_malformed_matching_frame_fails_pending_request() -> None:
     dispatcher = FakeDispatcher(lambda message: [_response(b"\x01\x00")])
     client = HandProtocolV1(dispatcher)
 
-    with pytest.raises(Exception, match="header"):
+    with pytest.raises(HandProtocolError, match="header"):
         client.read(main_index=1, length=1)
 
 
@@ -149,6 +181,10 @@ def test_timeout_and_timeout_validation() -> None:
         client.read(main_index=1, length=1, timeout_ms=0)
     with pytest.raises(ValidationError, match="int or float"):
         client.read(main_index=1, length=1, timeout_ms=True)
+    with pytest.raises(ValidationError, match="finite"):
+        client.read(main_index=1, length=1, timeout_ms=float("nan"))
+    with pytest.raises(ValidationError, match="finite"):
+        client.read(main_index=1, length=1, timeout_ms=float("inf"))
 
 
 def test_close_unsubscribes_exact_callback_and_is_idempotent() -> None:
@@ -185,6 +221,52 @@ def test_close_wakes_pending_request() -> None:
 
     assert len(errors) == 1
     assert isinstance(errors[0], StateError)
+
+
+def test_close_after_waiter_registration_prevents_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatcher = FakeDispatcher()
+    client = HandProtocolV1(dispatcher)
+    send_message = client._send_message
+    waiter_registered = threading.Event()
+    release_request = threading.Event()
+    close_returned = threading.Event()
+    errors: list[Exception] = []
+
+    def pause_before_send(message: CANFDMessage) -> None:
+        waiter_registered.set()
+        release_request.wait()
+        send_message(message)
+
+    def read() -> None:
+        try:
+            client.read(main_index=1, length=1, timeout_ms=1000)
+        except Exception as error:
+            errors.append(error)
+
+    monkeypatch.setattr(client, "_send_message", pause_before_send)
+    request_thread = threading.Thread(target=read)
+    request_thread.start()
+    assert waiter_registered.wait(timeout=1)
+    with client._state_lock:
+        assert client._pending is not None
+
+    close_thread = threading.Thread(
+        target=lambda: (client.close(), close_returned.set())
+    )
+    close_thread.start()
+    completed_before_release = close_returned.wait(timeout=1)
+    release_request.set()
+    close_thread.join(timeout=1)
+    request_thread.join(timeout=1)
+
+    assert completed_before_release
+    assert not close_thread.is_alive()
+    assert not request_thread.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], StateError)
+    assert dispatcher.sent == []
 
 
 def test_conflicting_duplicate_fragment_fails_transaction() -> None:

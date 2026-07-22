@@ -27,7 +27,7 @@ def test_l30_hardware_angle_read_and_snapshot() -> None:
         angle = hand.angle.get_blocking(timeout_ms=settings.timeout_ms)
         snapshot = hand.angle.get_snapshot()
 
-    assert_joint_tuple(tuple(angle.angles))
+    assert_joint_tuple(tuple(angle.angles.to_raw()))
     assert snapshot is angle
 
 

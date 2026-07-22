@@ -6,7 +6,7 @@ import time
 import pytest
 
 from linkerbot.comm.canfd import CANFDMessage
-from linkerbot.exceptions import StateError, TimeoutError
+from linkerbot.exceptions import StateError, TimeoutError, ValidationError
 from linkerbot.hand.o20 import protocol
 from linkerbot.hand.o20.client import O20Client
 from tests.hand.o20.fakes import FakeDispatcher
@@ -122,6 +122,80 @@ def test_close_wakes_pending_readers_with_state_error() -> None:
     assert isinstance(result[0], StateError)
 
 
+def test_close_between_frame_build_and_waiter_registration_fails_immediately(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatcher = FakeDispatcher()
+    client = O20Client(dispatcher, device_id=0x01)
+    build_message = client._message
+
+    def close_during_message_build(**kwargs) -> CANFDMessage:
+        message = build_message(**kwargs)
+        client.close()
+        return message
+
+    monkeypatch.setattr(client, "_message", close_during_message_build)
+
+    with pytest.raises(StateError, match="closed"):
+        client.read(register=protocol.O20_REG_CURRENT_POS, timeout_ms=1000)
+
+    assert dispatcher.sent == []
+
+
+def test_close_after_waiter_registration_prevents_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatcher = FakeDispatcher()
+    client = O20Client(dispatcher, device_id=0x01)
+    send_message = client._send_message
+    waiter_registered = threading.Event()
+    release_request = threading.Event()
+    close_returned = threading.Event()
+    errors: list[Exception] = []
+
+    def pause_before_send(message: CANFDMessage) -> None:
+        waiter_registered.set()
+        release_request.wait()
+        send_message(message)
+
+    def read() -> None:
+        try:
+            client.read(register=protocol.O20_REG_CURRENT_POS, timeout_ms=1000)
+        except Exception as error:
+            errors.append(error)
+
+    monkeypatch.setattr(client, "_send_message", pause_before_send)
+    request_thread = threading.Thread(target=read)
+    request_thread.start()
+    assert waiter_registered.wait(timeout=1)
+    with client._lock:
+        assert client._pending
+
+    close_thread = threading.Thread(
+        target=lambda: (client.close(), close_returned.set())
+    )
+    close_thread.start()
+    completed_before_release = close_returned.wait(timeout=1)
+    release_request.set()
+    close_thread.join(timeout=1)
+    request_thread.join(timeout=1)
+
+    assert completed_before_release
+    assert not close_thread.is_alive()
+    assert not request_thread.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], StateError)
+    assert dispatcher.sent == []
+
+
+@pytest.mark.parametrize("timeout_ms", [True, float("nan"), float("inf")])
+def test_client_rejects_non_finite_or_boolean_timeout(timeout_ms: float) -> None:
+    client = O20Client(FakeDispatcher(), device_id=0x01)
+
+    with pytest.raises(ValidationError):
+        client.read(register=protocol.O20_REG_CURRENT_POS, timeout_ms=timeout_ms)
+
+
 def test_client_uses_subscribe_filter_when_available() -> None:
     """Filter path: O20Client must prefer ``subscribe_filter`` if the
     dispatcher exposes it, so multi-hand buses don't fan out every frame to
@@ -144,6 +218,11 @@ def test_client_uses_subscribe_filter_when_available() -> None:
     assert predicate(matching)
     assert not predicate(non_matching)
 
+    client = O20Client(dispatcher, device_id=0x02)
+    assert len(dispatcher.filtered_subscribers) == 2
+    client.close()
+    assert len(dispatcher.filtered_subscribers) == 1
+
 
 def test_client_falls_back_to_subscribe_without_filter() -> None:
     """A dispatcher without ``subscribe_filter`` must still receive the
@@ -157,13 +236,13 @@ def test_client_falls_back_to_subscribe_without_filter() -> None:
             self.sent: list = []
             self.stopped = False
 
-        def send(self, message):  # noqa: ANN001 - test scaffolding
+        def send(self, message):
             self.sent.append(message)
 
-        def subscribe(self, callback):  # noqa: ANN001 - test scaffolding
+        def subscribe(self, callback):
             self.subscribed.append(callback)
 
-        def unsubscribe(self, callback):  # noqa: ANN001 - test scaffolding
+        def unsubscribe(self, callback):
             if callback in self.subscribed:
                 self.subscribed.remove(callback)
 

@@ -12,8 +12,8 @@ from pathlib import Path
 
 import can
 
-from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import ValidationError
+from linkerbot.hand._can_protocol import CANDispatcherLike
 from linkerbot.hand.angle_mapping import AngleMappingManager, validate_raw_values
 from linkerbot.relay import DataRelay
 
@@ -209,7 +209,7 @@ class AngleManager:
     def __init__(
         self,
         arbitration_id: int,
-        dispatcher: CANMessageDispatcher,
+        dispatcher: CANDispatcherLike,
         angle_mapping_path: str | Path | None = None,
         side: str | None = None,
         interface_name: str | None = None,
@@ -288,9 +288,7 @@ class AngleManager:
         mapped_angles = self._angle_mapping.map_values(raw_angles)
         raw_by_field = dict(zip(_JOINT_NAMES, mapped_angles, strict=True))
         for cmd, fields in self._FRAME_MAP.items():
-            data = [cmd] + [
-                raw_by_field[f] if f is not None else 0x00 for f in fields
-            ]
+            data = [cmd] + [raw_by_field[f] if f is not None else 0x00 for f in fields]
             msg = can.Message(
                 arbitration_id=self._arbitration_id,
                 data=data,
@@ -389,7 +387,7 @@ class AngleManager:
         # All frames received -- merge into L25Angle
         kwargs: dict[str, float] = {}
         for frame_cmd, fields in self._FRAME_MAP.items():
-            for field, value in zip(fields, self._pending[frame_cmd]):
+            for field, value in zip(fields, self._pending[frame_cmd], strict=True):
                 if field is not None:
                     kwargs[field] = value
 

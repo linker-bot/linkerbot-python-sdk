@@ -161,12 +161,12 @@ from linkerbot.hand.l30 import (
 )
 ```
 
-| 事件类型 | 数据字段 |
-| -------- | -------- |
-| `AngleEvent` | `event.data.angles` |
-| `SpeedEvent` | `event.data.speeds` |
-| `TorqueEvent` | `event.data.torques` |
-| `CurrentEvent` | `event.data.currents` |
-| `TemperatureEvent` | `event.data.temperatures` |
-| `FaultEvent` | `event.data.faults` |
+| 事件类型           | 数据字段                                   |
+| ------------------ | ------------------------------------------ |
+| `AngleEvent`       | `event.data.angles`                        |
+| `SpeedEvent`       | `event.data.speeds`                        |
+| `TorqueEvent`      | `event.data.torques`                       |
+| `CurrentEvent`     | `event.data.currents`                      |
+| `TemperatureEvent` | `event.data.temperatures`                  |
+| `FaultEvent`       | `event.data.faults`                        |
 | `ForceSensorEvent` | `event.data.thumb/index/middle/ring/pinky` |

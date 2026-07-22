@@ -81,7 +81,11 @@ def test_joint_table_exactly_matches_physical_o30i_layout() -> None:
 
 def test_joint_defaults_match_product_definition() -> None:
     assert O30I_DEFAULT_RAW_VALUES == (128, *([50] * 5), *([128] * 14))
-    assert O30iAngle.defaults().to_raw() == list(O30I_DEFAULT_RAW_VALUES)
+    defaults = O30iAngle.defaults()
+    assert defaults.to_raw() == list(O30I_DEFAULT_RAW_VALUES)
+    assert defaults.to_list() == pytest.approx(
+        [(255 - value) * 100 / 255 for value in O30I_DEFAULT_RAW_VALUES]
+    )
 
 
 def test_joint_spec_serializes_to_application_json_shape() -> None:
@@ -100,15 +104,45 @@ def test_raw_angles_reject_values_outside_u8_contract(value: object) -> None:
     values: list[object] = [128] * 20
     values[7] = value
     with pytest.raises(ValidationError):
-        O30iAngle.from_raw(values)
+        O30iAngle.from_raw(values)  # ty: ignore[invalid-argument-type]
 
 
-def test_angle_percentage_round_trip_uses_full_u8_range() -> None:
+@pytest.mark.parametrize(
+    ("percentage", "raw"),
+    [(0, 255), (5, 242), (50, 128), (100, 0)],
+)
+def test_angle_percentage_uses_hardware_verified_inverse_direction(
+    percentage: float,
+    raw: int,
+) -> None:
+    assert O30iAngle.from_list([percentage] * 20).to_raw() == [raw] * 20
+
+
+@pytest.mark.parametrize(
+    ("raw", "percentage"),
+    [(0, 100), (128, 127 * 100 / 255), (255, 0)],
+)
+def test_raw_angle_readback_uses_inverse_percentage_direction(
+    raw: int,
+    percentage: float,
+) -> None:
+    assert O30iAngle.from_raw([raw] * 20).to_list() == pytest.approx([percentage] * 20)
+
+
+def test_angle_round_trip_preserves_every_raw_byte() -> None:
+    for raw in range(256):
+        angle = O30iAngle.from_raw([raw] * 20)
+        assert angle.to_raw() == [raw] * 20
+
+
+def test_angle_list_and_index_access_do_not_expose_mutable_state() -> None:
     angle = O30iAngle.from_list([0, 50, 100] + [25] * 17)
+    values = angle.to_list()
+    values[0] = 100
 
-    raw = angle.to_raw()
-    assert raw[:3] == [0, 128, 255]
-    assert O30iAngle.from_raw(raw).to_raw() == raw
+    assert len(angle) == 20
+    assert angle[0] == 0
+    assert angle[1] == 50
 
 
 @pytest.mark.parametrize(
@@ -117,6 +151,8 @@ def test_angle_percentage_round_trip_uses_full_u8_range() -> None:
         ([0.0] * 19, "20 values"),
         ([0.0] * 19 + [101], "between 0 and 100"),
         ([0.0] * 19 + [True], "float/int"),
+        ([0.0] * 19 + [float("nan")], "finite"),
+        ([0.0] * 19 + [float("inf")], "finite"),
     ],
 )
 def test_angle_rejects_invalid_vectors(values: list[float], message: str) -> None:

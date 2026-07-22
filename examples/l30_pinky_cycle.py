@@ -56,16 +56,16 @@ JOINT_COUNT = len(L30_JOINT_SPECS)
 # Joint indices (zero-based) per the L30 left-hand mapping. Adjust if your
 # hardware differs from the reference table.
 # ---------------------------------------------------------------------------
-THUMB_MCP = 0       # J1  : 拇指指根弯曲
-THUMB_TIP = 1       # J2  : 拇指指尖弯曲
-RING_TIP = 5        # J6  : 无名指指尖弯曲
-RING_MCP = 6        # J7  : 无名指指根弯曲
-MIDDLE_MCP = 7      # J8  : 中指指根弯曲
-MIDDLE_TIP = 8      # J9  : 中指指尖弯曲
-PINKY_MCP = 9       # J10 : 小指指根弯曲
-PINKY_TIP = 10      # J11 : 小指指尖弯曲
-INDEX_MCP = 14      # J15 : 食指指根弯曲
-INDEX_TIP = 15      # J16 : 食指指尖弯曲
+THUMB_MCP = 0  # J1  : 拇指指根弯曲
+THUMB_TIP = 1  # J2  : 拇指指尖弯曲
+RING_TIP = 5  # J6  : 无名指指尖弯曲
+RING_MCP = 6  # J7  : 无名指指根弯曲
+MIDDLE_MCP = 7  # J8  : 中指指根弯曲
+MIDDLE_TIP = 8  # J9  : 中指指尖弯曲
+PINKY_MCP = 9  # J10 : 小指指根弯曲
+PINKY_TIP = 10  # J11 : 小指指尖弯曲
+INDEX_MCP = 14  # J15 : 食指指根弯曲
+INDEX_TIP = 15  # J16 : 食指指尖弯曲
 
 TIP_INDICES = (THUMB_TIP, INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP)
 MCP_INDICES = (THUMB_MCP, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP)
@@ -81,7 +81,9 @@ def _neutral_percentage(joint_index: int) -> float:
     return 50.0 if spec.minimum < 0 else 0.0
 
 
-def make_target(active_indices: tuple[int, ...], flex_ratio: float) -> list[float]:
+def make_target(
+    active_indices: tuple[int, ...], flex_ratio: float
+) -> list[int | float]:
     """Build a 17-value percentage target list (aligned with L6 API).
 
     Non-active joints stay at their neutral percentage (0 % for flex joints,
@@ -89,7 +91,9 @@ def make_target(active_indices: tuple[int, ...], flex_ratio: float) -> list[floa
     are pushed to ``flex_ratio * 100`` percent, which for flex joints
     corresponds to ``round(spec.maximum * flex_ratio)`` raw units.
     """
-    target = [_neutral_percentage(index) for index in range(JOINT_COUNT)]
+    target: list[int | float] = [
+        _neutral_percentage(index) for index in range(JOINT_COUNT)
+    ]
     for index in active_indices:
         target[index] = flex_ratio * 100.0
     return target
@@ -98,16 +102,30 @@ def make_target(active_indices: tuple[int, ...], flex_ratio: float) -> list[floa
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="L30 tip / MCP flex-extend cycle demo")
     parser.add_argument("--library-path", default=os.environ.get("LINKERBOT_CANFD_LIB"))
-    parser.add_argument("--hz", type=float, default=5.0,
-                        help="send rate within each phase (frames per second)")
-    parser.add_argument("--duration", type=float, default=5.0,
-                        help="total runtime in seconds, split equally across 4 poses")
-    parser.add_argument("--flex-ratio", type=float, default=0.9,
-                        help="how far to flex active joints, 0..1 (default 0.9)")
-    parser.add_argument("--speed", type=int, default=250,
-                        help="value passed to set_speeds (1..250)")
-    parser.add_argument("--torque", type=int, default=800,
-                        help="value passed to set_torques (60..800)")
+    parser.add_argument(
+        "--hz",
+        type=float,
+        default=5.0,
+        help="send rate within each phase (frames per second)",
+    )
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=5.0,
+        help="total runtime in seconds, split equally across 4 poses",
+    )
+    parser.add_argument(
+        "--flex-ratio",
+        type=float,
+        default=0.9,
+        help="how far to flex active joints, 0..1 (default 0.9)",
+    )
+    parser.add_argument(
+        "--speed", type=int, default=250, help="value passed to set_speeds (1..250)"
+    )
+    parser.add_argument(
+        "--torque", type=int, default=800, help="value passed to set_torques (60..800)"
+    )
     parser.add_argument("--node-id", type=int, default=1)
     parser.add_argument("--host-id", type=int, default=0)
     parser.add_argument("--device-index", type=int, default=0)
@@ -130,7 +148,9 @@ def run() -> None:
     if not 0.0 < args.flex_ratio <= 1.0:
         raise SystemExit("--flex-ratio must be in (0, 1]")
 
-    neutral = [_neutral_percentage(index) for index in range(JOINT_COUNT)]
+    neutral: list[int | float] = [
+        _neutral_percentage(index) for index in range(JOINT_COUNT)
+    ]
     tip_flex_target = make_target(TIP_INDICES, args.flex_ratio)
     mcp_flex_target = make_target(MCP_INDICES, args.flex_ratio)
 
@@ -171,10 +191,12 @@ def run() -> None:
         device_index=args.device_index,
         channel_index=args.channel_index,
         library_path=args.library_path,
-        auto_start_periodic=False,  # 关掉默认周期上报, 发送节奏更稳
+        auto_start_periodic=False,  # 关掉默认周期上报，发送节奏更稳
     ) as hand:
-        print(f"[demo] enabling motors, speed={args.speed}, torque={args.torque}, "
-              f"timeout_ms={args.timeout_ms:.0f}")
+        print(
+            f"[demo] enabling motors, speed={args.speed}, torque={args.torque}, "
+            f"timeout_ms={args.timeout_ms:.0f}"
+        )
         hand.control.enable(timeout_ms=args.timeout_ms)
         hand.speed.set_speeds([args.speed] * JOINT_COUNT)
         hand.torque.set_torques([args.torque] * JOINT_COUNT)
@@ -203,7 +225,7 @@ def run() -> None:
 def _run_interleaved(
     *,
     hand: L30,
-    poses: tuple[tuple[str, list[int]], ...],
+    poses: tuple[tuple[str, list[int | float]], ...],
     total_frames: int,
     frame_period: float,
     should_break,
@@ -231,7 +253,7 @@ def _run_interleaved(
     elapsed = time.monotonic() - start
     actual_hz = sent / elapsed if elapsed > 0 else 0.0
     print(f"[demo] sent {sent} frames in {elapsed:.2f}s (≈ {actual_hz:.1f} Hz)")
-    for (label, _), count in zip(poses, counts):
+    for (label, _), count in zip(poses, counts, strict=True):
         print(f"[demo]   {label}  × {count}")
 
 

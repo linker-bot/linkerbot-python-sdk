@@ -78,19 +78,45 @@ def test_start_polling_uses_one_shot_query_parent() -> None:
     hand.close()
 
 
-def test_start_polling_rejects_invalid_interval() -> None:
+@pytest.mark.parametrize("interval", [0.0, True, float("nan"), float("inf")])
+def test_start_polling_rejects_invalid_interval(interval: float) -> None:
     hand = L30(dispatcher=FakeDispatcher(), auto_start_periodic=False)
 
     with pytest.raises(ValidationError):
-        hand.start_polling({SensorSource.ANGLE: 0})
+        hand.start_polling({SensorSource.ANGLE: interval})
 
+    hand.close()
+
+
+def test_start_polling_rolls_back_when_thread_start_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hand = L30(dispatcher=FakeDispatcher(), auto_start_periodic=False)
+    real_thread = threading.Thread
+    starts = 0
+
+    class FlakyThread(real_thread):
+        def start(self) -> None:
+            nonlocal starts
+            starts += 1
+            if starts == 2:
+                raise RuntimeError("thread.start failed")
+            super().start()
+
+    monkeypatch.setattr(threading, "Thread", FlakyThread)
+
+    with pytest.raises(RuntimeError, match="thread.start failed"):
+        hand.start_polling({SensorSource.ANGLE: 0.01, SensorSource.CURRENT: 0.01})
+
+    assert hand._polling_threads == {}
+    assert hand._stop_polling.is_set()
     hand.close()
 
 
 def test_l30_rejects_invalid_interface_type() -> None:
     with pytest.raises(ValidationError, match="interface_type"):
         L30(
-            interface_type="usbcan",  # type: ignore[arg-type]
+            interface_type="usbcan",  # ty: ignore[invalid-argument-type]
             dispatcher=FakeDispatcher(),
             auto_start_periodic=False,
         )

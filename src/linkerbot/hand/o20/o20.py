@@ -7,6 +7,7 @@ host-side polling, and unified event streaming into a single SDK entry point.
 
 from __future__ import annotations
 
+import math
 import queue
 import threading
 import time
@@ -354,9 +355,14 @@ class O20:
         for source, interval in intervals.items():
             if not isinstance(source, SensorSource):
                 raise ValidationError("polling source must be SensorSource")
-            if interval <= 0:
+            if not isinstance(interval, (int, float)) or isinstance(interval, bool):
                 raise ValidationError(
-                    f"Interval for {source.value} must be positive, got {interval}"
+                    f"Interval for {source.value} must be numeric, got {interval!r}"
+                )
+            if not math.isfinite(interval) or interval <= 0:
+                raise ValidationError(
+                    f"Interval for {source.value} must be finite and positive, "
+                    f"got {interval}"
                 )
             if source not in self._polling_senders:
                 raise ValidationError(f"Unsupported polling source {source.value}")
@@ -365,7 +371,7 @@ class O20:
             for source, interval in intervals.items():
                 thread = threading.Thread(
                     target=self._polling_loop,
-                    args=(source, interval),
+                    args=(source, float(interval)),
                     daemon=True,
                     name=f"O20-Polling-{source.value}",
                 )

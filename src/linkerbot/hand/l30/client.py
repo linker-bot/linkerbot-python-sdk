@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -84,6 +85,8 @@ class L30Client:
         self._node_id = node_id
         self._host_id = host_id
         self._lock = threading.Lock()
+        self._send_condition = threading.Condition(self._lock)
+        self._sending_threads: dict[int, int] = {}
         # Two separate transaction locks so a tactile read no longer freezes
         # normal queries/ACKs and vice versa. Tactile reads still serialize
         # against other tactile reads (protocol §11: multi-frame tactile
@@ -97,16 +100,16 @@ class L30Client:
         self._tactile_pending: dict[int, _TactileWaiter] = {}
         self._report_handlers: dict[int, list[Callable[[bytes], None]]] = {}
         self._closed = False
-        # Prefer the dispatcher's O(1) filtered subscription when present
-        # (CANFDMessageDispatcher gained `subscribe_filter` in fix#141 to
-        # avoid fan-out across every L30Client on a shared bus). Fall back
-        # to the broadcast subscribe contract for older dispatchers and the
-        # test FakeDispatcher.
+        self._message_callback = self._on_message
+        self._filter_callback = self._frame_matches_client
+        # Prefer the dispatcher's filtered subscription when present so only
+        # matching clients run the full callback/parser path. Fall back to the
+        # broadcast contract for older dispatchers and test fakes.
         subscribe_filter = getattr(dispatcher, "subscribe_filter", None)
         if subscribe_filter is not None:
-            subscribe_filter(self._frame_matches_client, self._on_message)
+            subscribe_filter(self._filter_callback, self._message_callback)
         else:
-            self._dispatcher.subscribe(self._on_message)
+            self._dispatcher.subscribe(self._message_callback)
 
     @property
     def node_id(self) -> int:
@@ -132,16 +135,14 @@ class L30Client:
         Raises:
             ValidationError: If the client is closed or frame fields are invalid.
         """
-        self._ensure_open()
-        self._dispatcher.send(
-            self._message(
-                parent=parent,
-                subcmd=subcmd,
-                access=protocol.L30_ACCESS_WRITE,
-                payload=payload,
-                dlc=dlc,
-            )
+        message = self._message(
+            parent=parent,
+            subcmd=subcmd,
+            access=protocol.L30_ACCESS_WRITE,
+            payload=payload,
+            dlc=dlc,
         )
+        self._send_message(message)
 
     def request_ack(
         self,
@@ -218,7 +219,6 @@ class L30Client:
         """
         with self._tactile_lock:
             self._validate_timeout(timeout_ms)
-            self._ensure_open()
             request = self._message(
                 parent=protocol.L30_PARENT_TACTILE,
                 subcmd=subcmd,
@@ -229,9 +229,10 @@ class L30Client:
             response_id = protocol.expected_response_id(request.arbitration_id)
             waiter = _TactileWaiter()
             with self._lock:
+                self._ensure_open()
                 self._tactile_pending[response_id] = waiter
             try:
-                self._dispatcher.send(request)
+                self._send_message(request)
                 if not waiter.event.wait(timeout_ms / 1000):
                     raise TimeoutError(
                         f"No L30 tactile response received within {timeout_ms:.0f}ms"
@@ -279,23 +280,32 @@ class L30Client:
 
     def close(self) -> None:
         """Unsubscribe from the dispatcher and wake pending waiters."""
-        if self._closed:
-            return
-        self._closed = True
-        self._dispatcher.unsubscribe(self._on_message)
         error = StateError("L30 client is closed")
-        with self._lock:
+        current_thread = threading.get_ident()
+        with self._send_condition:
+            if self._closed:
+                return
+            self._closed = True
             pending = tuple(self._pending.values())
             tactile_pending = tuple(self._tactile_pending.values())
             self._pending.clear()
             self._tactile_pending.clear()
             self._report_handlers.clear()
-        for waiter in pending:
-            waiter.error = error
-            waiter.event.set()
-        for waiter in tactile_pending:
-            waiter.error = error
-            waiter.event.set()
+            for waiter in pending:
+                waiter.error = error
+                waiter.event.set()
+            for waiter in tactile_pending:
+                waiter.error = error
+                waiter.event.set()
+            self._send_condition.wait_for(
+                lambda: (
+                    not any(
+                        thread_id != current_thread
+                        for thread_id in self._sending_threads
+                    )
+                )
+            )
+        self._dispatcher.unsubscribe(self._message_callback)
 
     def _request(
         self,
@@ -309,16 +319,16 @@ class L30Client:
     ) -> bytes:
         with self._transaction_lock:
             self._validate_timeout(timeout_ms)
-            self._ensure_open()
             request = self._message(
                 parent=parent, subcmd=subcmd, access=access, payload=payload, dlc=dlc
             )
             response_id = protocol.expected_response_id(request.arbitration_id)
             waiter = _ResponseWaiter()
             with self._lock:
+                self._ensure_open()
                 self._pending[response_id] = waiter
             try:
-                self._dispatcher.send(request)
+                self._send_message(request)
                 if not waiter.event.wait(timeout_ms / 1000):
                     raise TimeoutError(
                         f"No L30 response received within {timeout_ms:.0f}ms"
@@ -347,6 +357,25 @@ class L30Client:
             dlc=dlc,
         )
 
+    def _send_message(self, message: CANFDMessage) -> None:
+        """Send only while open and let ``close`` drain reserved sends."""
+        current_thread = threading.get_ident()
+        with self._send_condition:
+            self._ensure_open()
+            self._sending_threads[current_thread] = (
+                self._sending_threads.get(current_thread, 0) + 1
+            )
+        try:
+            self._dispatcher.send(message)
+        finally:
+            with self._send_condition:
+                remaining = self._sending_threads[current_thread] - 1
+                if remaining:
+                    self._sending_threads[current_thread] = remaining
+                else:
+                    del self._sending_threads[current_thread]
+                self._send_condition.notify_all()
+
     def _on_message(self, message: CANFDMessage) -> None:
         if not message.is_extended_id:
             return
@@ -365,9 +394,8 @@ class L30Client:
     def _frame_matches_client(self, message: CANFDMessage) -> bool:
         """Predicate used by ``subscribe_filter``.
 
-        Cheap pre-filter so the dispatcher only dispatches frames whose
-        ``dst_id``/``src_id`` match this client. On a shared bus with N
-        hands, this turns the per-frame fan-out from O(N) into O(1).
+        Cheap pre-filter so only a client whose ``dst_id``/``src_id`` matches
+        runs the full frame callback. The dispatcher still scans predicates.
         """
         if not message.is_extended_id:
             return False
@@ -375,9 +403,7 @@ class L30Client:
             frame_id = protocol.parse_can_id(message.arbitration_id)
         except ValidationError:
             return False
-        return (
-            frame_id.dst_id == self._host_id and frame_id.src_id == self._node_id
-        )
+        return frame_id.dst_id == self._host_id and frame_id.src_id == self._node_id
 
     def _handle_pending(self, message: CANFDMessage) -> bool:
         # Normal read responses and write ACKs are matched by exact response ID.
@@ -430,5 +456,7 @@ class L30Client:
             raise StateError("L30 client is closed")
 
     def _validate_timeout(self, timeout_ms: float) -> None:
-        if timeout_ms <= 0:
-            raise ValidationError("timeout_ms must be positive")
+        if not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool):
+            raise ValidationError("timeout_ms must be int or float")
+        if not math.isfinite(timeout_ms) or timeout_ms <= 0:
+            raise ValidationError("timeout_ms must be finite and positive")

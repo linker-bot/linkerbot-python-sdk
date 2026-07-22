@@ -39,11 +39,13 @@ def test_parse_can_id_round_trips_fields() -> None:
     ],
 )
 def test_build_can_id_rejects_invalid_fields(kwargs: dict[str, int]) -> None:
-    valid = {"device_id": 1, "register": 0x06, "write": True}
+    valid = {"device_id": 1, "register": 0x06}
     valid.update(kwargs)
 
     with pytest.raises(ValidationError):
-        protocol.build_can_id(**valid)
+        protocol.build_can_id(
+            device_id=valid["device_id"], register=valid["register"], write=True
+        )
 
 
 def test_parse_can_id_rejects_reserved_low_bits() -> None:
@@ -220,7 +222,7 @@ def test_validate_range_accepts_intenum_but_rejects_bool() -> None:
             "0x06",
             "register",
             0,
-            protocol.O20_REGISTER_MAX,  # type: ignore[arg-type]
+            protocol.O20_REGISTER_MAX,
         )
 
 

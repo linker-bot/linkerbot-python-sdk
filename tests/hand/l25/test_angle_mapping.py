@@ -1,7 +1,9 @@
 """Unit tests for L25 angle mapping (no hardware required)."""
 
+from collections.abc import Callable
 from pathlib import Path
 
+import can
 import pytest
 
 from linkerbot.exceptions import ValidationError
@@ -12,17 +14,17 @@ pytestmark = [pytest.mark.l25, pytest.mark.validation]
 
 class FakeDispatcher:
     def __init__(self) -> None:
-        self.sent = []
-        self.subscribers = []
+        self.sent: list[can.Message] = []
+        self.subscribers: list[Callable[[can.Message], None]] = []
 
-    def subscribe(self, callback):
+    def subscribe(self, callback: Callable[[can.Message], None]) -> None:
         self.subscribers.append(callback)
 
-    def send(self, msg):
+    def send(self, msg: can.Message) -> None:
         self.sent.append(msg)
 
 
-def _data(msg) -> list[int]:
+def _data(msg: can.Message) -> list[int]:
     return list(msg.data)
 
 
@@ -120,4 +122,6 @@ def test_set_raw_angles_rejects_invalid_values(tmp_path: Path) -> None:
 
     invalid_float = list(range(15)) + [15.0]
     with pytest.raises(ValidationError):
-        manager.set_raw_angles(invalid_float)  # type: ignore[list-item]
+        manager.set_raw_angles(
+            invalid_float  # ty: ignore[invalid-argument-type]
+        )

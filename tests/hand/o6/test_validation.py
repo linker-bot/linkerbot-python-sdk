@@ -38,7 +38,9 @@ class TestO6Angle:
 
     def test_from_list_non_numeric(self):
         with pytest.raises(ValueError, match="must be float/int"):
-            O6Angle.from_list(["a"] + [50.0] * 5)
+            O6Angle.from_list(
+                ["a"] + [50.0] * 5  # ty: ignore[invalid-argument-type]
+            )
 
     def test_round_trip(self):
         angle = O6Angle.from_list(VALID_VALUES)
@@ -84,7 +86,9 @@ class TestO6Speed:
 
     def test_from_list_non_numeric(self):
         with pytest.raises(ValueError, match="must be float/int"):
-            O6Speed.from_list(["a"] + [50.0] * 5)
+            O6Speed.from_list(
+                ["a"] + [50.0] * 5  # ty: ignore[invalid-argument-type]
+            )
 
     def test_round_trip(self):
         speed = O6Speed.from_list(VALID_VALUES)
@@ -119,7 +123,9 @@ class TestO6Torque:
 
     def test_from_list_non_numeric(self):
         with pytest.raises(ValueError, match="must be float/int"):
-            O6Torque.from_list(["a"] + [50.0] * 5)
+            O6Torque.from_list(
+                ["a"] + [50.0] * 5  # ty: ignore[invalid-argument-type]
+            )
 
     def test_round_trip(self):
         torque = O6Torque.from_list(VALID_VALUES)
@@ -146,7 +152,9 @@ class TestO6Acceleration:
 
     def test_from_list_non_numeric(self):
         with pytest.raises(ValueError, match="must be float/int"):
-            O6Acceleration.from_list(["a"] + [50.0] * 5)
+            O6Acceleration.from_list(
+                ["a"] + [50.0] * 5  # ty: ignore[invalid-argument-type]
+            )
 
     def test_round_trip(self):
         accel = O6Acceleration.from_list(VALID_VALUES)

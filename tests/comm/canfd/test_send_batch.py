@@ -185,7 +185,10 @@ def test_send_batch_after_close_raises_fast(
     transmit_calls_before = len(lib.CANFD_Transmit.calls)
     with pytest.raises(CANError, match="closed"):
         interface.send_batch(
-            [CANFDMessage(arbitration_id=1, data=b""), CANFDMessage(arbitration_id=2, data=b"")]
+            [
+                CANFDMessage(arbitration_id=1, data=b""),
+                CANFDMessage(arbitration_id=2, data=b""),
+            ]
         )
     assert len(lib.CANFD_Transmit.calls) == transmit_calls_before
 

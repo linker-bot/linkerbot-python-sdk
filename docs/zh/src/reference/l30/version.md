@@ -16,7 +16,7 @@ with L30(auto_start_periodic=False) as hand:
     print("软件版本：", info.software_version)
     print("硬件版本：", info.hardware_version)
     print("结构版本：", info.structure_version)
-    print("NodeID：", info.node_id)
+    print("NodeID:", info.node_id)
     print("左右手：", info.hand_side.value)
     print("传感器类型：", info.sensor_type)
     print("组装厂：", info.origin)
@@ -66,6 +66,6 @@ with L30(auto_start_periodic=False) as hand:
     product_code = hand.version.get_product_code(timeout_ms=1000)
 
     print("产品编码：", product_code)
-    print("NodeID：", info.node_id)
+    print("NodeID:", info.node_id)
     print("左右手：", info.hand_side.value)
 ```

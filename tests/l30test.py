@@ -9,8 +9,9 @@ Run from the repository root with hardware connected:
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import time
+from dataclasses import dataclass
+
 from linkerbot.comm.canfd import CANFDConfigOptions, CANFDInterface, CANFDMessage
 
 DEFAULT_LIBRARY_PATH = "src/linkerbot/hand/libcanbus.so"

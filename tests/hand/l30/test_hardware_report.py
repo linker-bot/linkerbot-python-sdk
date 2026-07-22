@@ -30,7 +30,7 @@ def test_l30_hardware_report_start_default_and_disable_all() -> None:
         finally:
             hand.report.disable_all(timeout_ms=settings.timeout_ms)
 
-    assert_joint_tuple(tuple(angle.angles))
+    assert_joint_tuple(tuple(angle.angles.to_raw()))
 
 
 def test_l30_hardware_report_configure_and_disable_angle() -> None:
@@ -48,4 +48,4 @@ def test_l30_hardware_report_configure_and_disable_angle() -> None:
         finally:
             hand.report.disable(ReportSource.ANGLE, timeout_ms=settings.timeout_ms)
 
-    assert_joint_tuple(tuple(angle.angles))
+    assert_joint_tuple(tuple(angle.angles.to_raw()))

@@ -38,8 +38,25 @@ def test_joint_specs_match_l30_v6_left_hand_ranges() -> None:
 
 
 def test_l30_angle_stores_percentages_and_round_trips() -> None:
-    percentages = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0,
-                   0.0, 100.0, 25.0, 50.0, 75.0, 33.3, 66.6, 50.0]
+    percentages = [
+        10.0,
+        20.0,
+        30.0,
+        40.0,
+        50.0,
+        60.0,
+        70.0,
+        80.0,
+        90.0,
+        0.0,
+        100.0,
+        25.0,
+        50.0,
+        75.0,
+        33.3,
+        66.6,
+        50.0,
+    ]
     angle = L30Angle.from_list(percentages)
 
     assert angle.to_list() == percentages
@@ -78,7 +95,7 @@ def test_l30_angle_rejects_out_of_percentage_range() -> None:
 
 def test_l30_angle_rejects_non_numeric_percentage() -> None:
     values: list[float] = [0.0] * L30_JOINT_COUNT
-    values[0] = "50"  # type: ignore[list-item]
+    values[0] = "50"  # ty: ignore[invalid-assignment]
     with pytest.raises(ValidationError, match="float/int"):
         L30Angle.from_list(values)
 
@@ -101,7 +118,7 @@ def test_l30_angle_from_raw_rejects_out_of_spec_range() -> None:
 
 def test_l30_angle_from_raw_rejects_non_int() -> None:
     values: list[int] = [spec.minimum for spec in L30_JOINT_SPECS]
-    values[0] = 1.5  # type: ignore[list-item]
+    values[0] = 1.5  # ty: ignore[invalid-assignment]
 
     with pytest.raises(ValidationError, match="int"):
         L30Angle.from_raw(values)
@@ -133,9 +150,7 @@ def test_validate_u16_values_checks_count_and_range() -> None:
 
 
 def test_validate_raw_command_values_matches_joint_specs() -> None:
-    validated = validate_raw_command_values(
-        [spec.maximum for spec in L30_JOINT_SPECS]
-    )
+    validated = validate_raw_command_values([spec.maximum for spec in L30_JOINT_SPECS])
     assert validated == tuple(spec.maximum for spec in L30_JOINT_SPECS)
 
     bad = [spec.maximum for spec in L30_JOINT_SPECS]

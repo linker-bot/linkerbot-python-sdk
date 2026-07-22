@@ -50,6 +50,12 @@ def test_get_snapshot_includes_all_cached_fields() -> None:
 
     snapshot = hand.get_snapshot()
 
+    assert snapshot.angle is not None
+    assert snapshot.speed is not None
+    assert snapshot.current is not None
+    assert snapshot.temperature is not None
+    assert snapshot.fault is not None
+    assert snapshot.torque is not None
     assert snapshot.angle.angles.to_raw() == [1] * 17
     assert snapshot.speed.speeds == (2,) * 17
     assert snapshot.current.currents == (3,) * 17
@@ -159,6 +165,8 @@ def test_start_polling_rejects_non_sensor_source_key() -> None:
     hand = L30(dispatcher=FakeDispatcher(), auto_start_periodic=False)
 
     with pytest.raises(ValidationError, match="SensorSource"):
-        hand.start_polling({"angle": 0.1})  # type: ignore[arg-type]
+        hand.start_polling(
+            {"angle": 0.1}  # ty: ignore[invalid-argument-type]
+        )
 
     hand.close()

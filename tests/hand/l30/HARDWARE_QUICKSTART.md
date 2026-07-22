@@ -129,22 +129,22 @@ sudo -E env \
 
 ## 每个测试文件覆盖的功能
 
-| 文件 | 功能 |
-| --- | --- |
-| `test_hardware_smoke.py` | 最小打开设备 + 角度读取 |
-| `test_hardware_lifecycle.py` | context manager、`close()`、`is_closed()` |
-| `test_hardware_control.py` | `control.enable()` / `control.disable()` |
-| `test_hardware_angle.py` | `angle.get_blocking()`、snapshot、可选安全角度写入 |
-| `test_hardware_speed.py` | `speed.get_blocking()`、snapshot、可选安全速度写入 |
-| `test_hardware_torque.py` | `torque.set_all()`、target snapshot |
-| `test_hardware_current.py` | `current.get_blocking()`、snapshot |
-| `test_hardware_temperature.py` | `temperature.get_blocking()`、snapshot |
-| `test_hardware_fault.py` | `fault.get_blocking()`、snapshot、fault bit helpers |
-| `test_hardware_force_sensor.py` | 单指触觉读取；可选五指读取 |
-| `test_hardware_report.py` | 周期上报配置、默认上报、disable/disable_all |
-| `test_hardware_stream.py` | `stream()`、`stop_stream()`、周期 angle event |
-| `test_hardware_polling.py` | host polling，非设备侧周期上报 |
-| `test_hardware_snapshot.py` | 多传感器读取后的 `get_snapshot()` |
+| 文件                            | 功能                                                |
+| ------------------------------- | --------------------------------------------------- |
+| `test_hardware_smoke.py`        | 最小打开设备 + 角度读取                             |
+| `test_hardware_lifecycle.py`    | context manager、`close()`、`is_closed()`           |
+| `test_hardware_control.py`      | `control.enable()` / `control.disable()`            |
+| `test_hardware_angle.py`        | `angle.get_blocking()`、snapshot、可选安全角度写入  |
+| `test_hardware_speed.py`        | `speed.get_blocking()`、snapshot、可选安全速度写入  |
+| `test_hardware_torque.py`       | `torque.set_all()`、target snapshot                 |
+| `test_hardware_current.py`      | `current.get_blocking()`、snapshot                  |
+| `test_hardware_temperature.py`  | `temperature.get_blocking()`、snapshot              |
+| `test_hardware_fault.py`        | `fault.get_blocking()`、snapshot、fault bit helpers |
+| `test_hardware_force_sensor.py` | 单指触觉读取；可选五指读取                          |
+| `test_hardware_report.py`       | 周期上报配置、默认上报、disable/disable_all         |
+| `test_hardware_stream.py`       | `stream()`、`stop_stream()`、周期 angle event       |
+| `test_hardware_polling.py`      | host polling，非设备侧周期上报                      |
+| `test_hardware_snapshot.py`     | 多传感器读取后的 `get_snapshot()`                   |
 
 ## 安全注意事项
 

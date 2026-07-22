@@ -11,6 +11,7 @@ raw protocol range is needed.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from linkerbot.exceptions import ValidationError
@@ -77,11 +78,11 @@ class O20Angle:
         _validate_percentage_values(self.values)
 
     @classmethod
-    def from_list(cls, values: list[float] | tuple[float, ...]) -> O20Angle:
+    def from_list(cls, values: Sequence[int | float]) -> O20Angle:
         """Construct from 0-100 percentage floats.
 
         Args:
-            values: 16 percentage values in motor-ID order, each in [0, 100].
+            values: 16 percentage numbers in motor-ID order, each in [0, 100].
 
         Returns:
             O20Angle command target.

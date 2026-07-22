@@ -1,11 +1,12 @@
 import queue
+import threading
 import time
 from collections.abc import Callable
 
 import pytest
 
 from linkerbot.comm.canfd import CANFDMessage, CANFDMessageDispatcher
-from linkerbot.exceptions import CANError
+from linkerbot.exceptions import CANError, ValidationError
 
 
 class FakeInterface:
@@ -13,10 +14,12 @@ class FakeInterface:
         self.incoming: queue.Queue[CANFDMessage | Exception] = queue.Queue()
         self.sent: list[CANFDMessage] = []
         self.closed = False
+        self.close_calls = 0
         self.send_error: Exception | None = None
         self.receive_error: Exception | None = None
 
-    def send(self, message: CANFDMessage) -> None:
+    def send(self, message: CANFDMessage, timeout_ms: int = 10) -> None:
+        _ = timeout_ms
         if self.send_error is not None:
             raise self.send_error
         self.sent.append(message)
@@ -33,6 +36,7 @@ class FakeInterface:
         return [item]
 
     def close(self) -> None:
+        self.close_calls += 1
         self.closed = True
 
 
@@ -163,6 +167,67 @@ def test_stop_closes_interface_and_is_idempotent() -> None:
     dispatcher.stop()
 
     assert interface.closed is True
+    assert interface.close_calls == 1
+
+
+def test_concurrent_fatal_errors_report_only_once() -> None:
+    class SlowFalse:
+        def __bool__(self) -> bool:
+            # Release the GIL between the old check and assignment so both
+            # callers would observe false without the fatal-transition lock.
+            time.sleep(0.03)
+            return False
+
+    interface = FakeInterface()
+    errors: list[Exception] = []
+    dispatcher = CANFDMessageDispatcher(interface=interface, on_bus_error=errors.append)
+    dispatcher._error_reported = SlowFalse()  # ty: ignore[invalid-assignment]
+    start = threading.Barrier(3)
+
+    def report_error(message: str) -> None:
+        start.wait()
+        dispatcher._handle_bus_error(CANError(message))
+
+    threads = [
+        threading.Thread(target=report_error, args=(f"error-{index}",))
+        for index in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    start.wait()
+    for thread in threads:
+        thread.join(timeout=1.0)
+
+    try:
+        assert all(not thread.is_alive() for thread in threads)
+        assert len(errors) == 1
+    finally:
+        dispatcher.stop()
+
+
+def test_concurrent_stop_closes_interface_only_once() -> None:
+    class SlowCloseInterface(FakeInterface):
+        def close(self) -> None:
+            time.sleep(0.03)
+            super().close()
+
+    interface = SlowCloseInterface()
+    dispatcher = CANFDMessageDispatcher(interface=interface)
+    start = threading.Barrier(3)
+
+    def stop() -> None:
+        start.wait()
+        dispatcher.stop()
+
+    threads = [threading.Thread(target=stop) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    start.wait()
+    for thread in threads:
+        thread.join(timeout=2.0)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert interface.close_calls == 1
 
 
 def test_context_manager_stops_dispatcher() -> None:
@@ -172,6 +237,48 @@ def test_context_manager_stops_dispatcher() -> None:
         pass
 
     assert interface.closed is True
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_invalid_error_threshold_is_rejected(value: object) -> None:
+    with pytest.raises(ValidationError, match="positive int"):
+        CANFDMessageDispatcher(
+            interface=FakeInterface(),
+            max_consecutive_errors=value,  # ty: ignore[invalid-argument-type]
+        )
+
+
+def test_falsy_backend_is_not_replaced_by_vendor_interface() -> None:
+    class FalsyInterface(FakeInterface):
+        def __bool__(self) -> bool:
+            return False
+
+    interface = FalsyInterface()
+
+    with CANFDMessageDispatcher(interface=interface) as dispatcher:
+        assert dispatcher.interface is interface
+
+
+def test_unsubscribe_removes_fresh_bound_method_from_filtered_subscribers() -> None:
+    class Receiver:
+        def __init__(self) -> None:
+            self.messages: list[CANFDMessage] = []
+
+        def receive(self, message: CANFDMessage) -> None:
+            self.messages.append(message)
+
+    interface = FakeInterface()
+    receiver = Receiver()
+    dispatcher = CANFDMessageDispatcher(interface=interface)
+    try:
+        dispatcher.subscribe_filter(lambda _: True, receiver.receive)
+        # Each attribute access creates a new bound-method object. Unsubscribe
+        # must compare callbacks by equality, as plain subscriptions do.
+        dispatcher.unsubscribe(receiver.receive)
+        dispatcher._dispatch(CANFDMessage(arbitration_id=1, data=b"x"))
+        assert receiver.messages == []
+    finally:
+        dispatcher.stop()
 
 
 def test_send_after_stop_raises_runtime_error() -> None:
@@ -234,9 +341,7 @@ def test_error_backoff_recovers_within_milliseconds() -> None:
     5–50 ms so an L30 user does not observe seconds-long stalls.
     """
     interface = FakeInterface()
-    dispatcher = CANFDMessageDispatcher(
-        interface=interface, max_consecutive_errors=5
-    )
+    dispatcher = CANFDMessageDispatcher(interface=interface, max_consecutive_errors=5)
     received: list[CANFDMessage] = []
     message = CANFDMessage(arbitration_id=1, data=b"x")
     try:

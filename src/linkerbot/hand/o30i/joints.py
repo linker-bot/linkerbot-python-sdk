@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from linkerbot.exceptions import ValidationError
@@ -16,7 +17,8 @@ class JointSpec:
     """One physical O30i joint and its public metadata.
 
     The measured protocol currently defines only a normalized byte range. It
-    does not provide calibrated degrees or a guaranteed open/close direction.
+    does not provide calibrated degrees. The public percentage direction is
+    defined separately by :class:`O30iAngle` and is inverse to the raw bytes.
     """
 
     id: str
@@ -94,10 +96,10 @@ O30I_DEFAULT_RAW_VALUES: tuple[int, ...] = tuple(
 class O30iAngle:
     """Twenty physical O30i joint values represented as percentages.
 
-    Percentages normalize the numeric protocol range only: 0% maps to byte 0
-    and 100% maps to byte 255. Firmware testing suggests that smaller bytes may
-    bend some joints further, so callers must not infer a universal physical
-    open/close direction from the percentage alone.
+    Hardware verification confirms that O30i raw positions run opposite to the
+    public logical direction: 0% (open endpoint) maps to byte 255 and 100%
+    (closed endpoint) maps to byte 0. These values are normalized endpoints,
+    not calibrated angles in degrees.
     """
 
     values: tuple[float, ...]
@@ -112,9 +114,9 @@ class O30iAngle:
 
     @classmethod
     def from_raw(cls, values: list[int] | tuple[int, ...]) -> O30iAngle:
-        """Construct from 20 protocol-native bytes."""
+        """Construct from 20 protocol-native bytes using inverse direction."""
         normalized = validate_u8_values(values, name="raw_angles")
-        return cls(tuple(value * 100 / 255 for value in normalized))
+        return cls(tuple((255 - value) * 100 / 255 for value in normalized))
 
     @classmethod
     def defaults(cls) -> O30iAngle:
@@ -126,8 +128,8 @@ class O30iAngle:
         return list(self.values)
 
     def to_raw(self) -> list[int]:
-        """Convert percentages to 20 protocol-native bytes."""
-        return [round(value * 255 / 100) for value in self.values]
+        """Convert logical percentages to inverse protocol-native bytes."""
+        return [round((100 - value) * 255 / 100) for value in self.values]
 
     def __getitem__(self, index: int) -> float:
         return self.values[index]
@@ -160,6 +162,8 @@ def _validate_percentage_values(values: tuple[float, ...]) -> None:
     for index, value in enumerate(values):
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             raise ValidationError(f"angles[{index}] must be float/int")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValidationError(f"angles[{index}] must be finite, got {value}")
         if value < 0 or value > 100:
             raise ValidationError(
                 f"angles[{index}] must be between 0 and 100, got {value}"
