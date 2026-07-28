@@ -1,6 +1,6 @@
-"""Driver for the V2 motor variant used at A7V2 joints 5-6.
+"""Driver for the V2 motor variant used at P7 joints 5-6.
 
-A7V2 mixes two motor variants on a single CAN bus:
+P7 mixes two motor variants on a single CAN bus:
 
 * Joints 0-4 reuse :class:`linkerbot.arm.a7.motor.A7Motor` (CMD-byte protocol,
   PROFILE_POSITION mode, host-side polling for sensor data).
@@ -11,7 +11,7 @@ A7V2 mixes two motor variants on a single CAN bus:
   heartbeat is required to keep the drive out of fault-on-timeout).
 
 :class:`MotorV2` mirrors :class:`A7Motor`'s public surface so that
-:class:`linkerbot.arm.a7_v2.A7V2` can iterate over the mixed motor list
+:class:`linkerbot.arm.p7.P7` can iterate over the mixed motor list
 without ``isinstance`` branches.
 """
 
@@ -104,7 +104,7 @@ class MotorV2:
 
     Designed to be ducktype-compatible with
     :class:`linkerbot.arm.a7.motor.A7Motor`: same method names, same property
-    surface, same lifecycle. :class:`linkerbot.arm.a7_v2.A7V2` mixes five
+    surface, same lifecycle. :class:`linkerbot.arm.p7.P7` mixes five
     :class:`A7Motor` (joints 0-4) and two :class:`MotorV2` (joints 5-6) into
     a single ``_motors`` list and treats them uniformly.
 
@@ -112,7 +112,7 @@ class MotorV2:
 
     - **No drive-side trajectory generator.** Every ``set_angle`` is the
       drive's instantaneous PD target. Smooth motion requires the host to
-      stream interpolated waypoints — :meth:`A7V2.move_j` / :meth:`A7V2.move_l`
+      stream interpolated waypoints — :meth:`P7.move_j` / :meth:`P7.move_l`
       do this.
     - **State machine has only Rest / Motor states** (no continuous
       "enabled flag"). Transitions are via the fixed 8-byte commands
@@ -126,7 +126,7 @@ class MotorV2:
     Parameters
     ----------
     id : int
-        Motor CAN ID (51-67 per A7V2 wiring).
+        Motor CAN ID (51-67 per P7 wiring).
     dispatcher : CANMessageDispatcher
         Shared CAN bus dispatcher.
     """
@@ -323,7 +323,7 @@ class MotorV2:
         """No-op for the V2 motor; control mode is Flash-persisted, not
         runtime-switchable per frame.
 
-        A7V2 calls this with ``ControlMode.PP`` before enable. We accept PP
+        P7 calls this with ``ControlMode.PP`` before enable. We accept PP
         as the placeholder that maps onto this motor's Servo mode (already
         configured in Flash by the factory and verified at init via
         :meth:`check_alive`).
@@ -381,7 +381,7 @@ class MotorV2:
     def set_acceleration(self, acceleration: float) -> None:
         # Servo mode has no drive-side acceleration limit; cache for callers
         # that read back ``control_acceleration``. The host-side trajectory
-        # layer in :meth:`A7V2.move_j` is what actually shapes the motion
+        # layer in :meth:`P7.move_j` is what actually shapes the motion
         # ramp.
         self._control_acceleration = AccelerationState(
             acceleration=acceleration, timestamp=time.time()
@@ -389,7 +389,7 @@ class MotorV2:
 
     def set_deceleration(self, deceleration: float) -> None:
         # Servo mode has no drive-side deceleration; intentional no-op.
-        # ``A7V2.set_accelerations`` calls both ``set_acceleration`` and
+        # ``P7.set_accelerations`` calls both ``set_acceleration`` and
         # ``set_deceleration`` on every motor for parity with A7.
         pass
 
@@ -411,7 +411,7 @@ class MotorV2:
 
         Read-only, no motion. Returns True if the motor responds and reports
         Servo mode. If it responds but the mode is something else, returns
-        True with a warning (so A7V2 init still succeeds, but callers are
+        True with a warning (so P7 init still succeeds, but callers are
         notified that the drive is misconfigured).
         """
         try:
@@ -451,7 +451,7 @@ class MotorV2:
         self._control_angle = AngleState(angle=self._angle.angle, timestamp=now)
         self._control_velocity = VelocityState(velocity=0.0, timestamp=now)
         # Acceleration is host-side only; pick a conservative default to
-        # match A7lite's defaults so ``A7V2.set_accelerations`` validation
+        # match A7lite's defaults so ``P7.set_accelerations`` validation
         # passes if callers query before setting.
         self._control_acceleration = AccelerationState(
             acceleration=10.0, timestamp=now

@@ -8,7 +8,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 from linkerbot.arm.a7.motor import A7Motor, SensorType
-from linkerbot.arm.a7_v2.consts import (
+from linkerbot.arm.p7.consts import (
     DEFAULT_POLL_INTERVALS,
     MAX_ACCELERATION,
     MAX_VELOCITY,
@@ -24,7 +24,7 @@ from linkerbot.arm.a7_v2.consts import (
     MOVE_L_MAX_MAX_VELOCITY,
     NUM_JOINTS,
 )
-from linkerbot.arm.a7_v2.motor_v2 import MotorV2
+from linkerbot.arm.p7.motor_v2 import MotorV2
 from linkerbot.arm.common import ControlMode, Pose, State
 from linkerbot.comm import CanInterface, CANMessageDispatcher
 from linkerbot.exceptions import StateError, ValidationError
@@ -40,7 +40,7 @@ _WAYPOINT_INTERVAL_S = 0.01
 
 def _guard_not_moving(method):
     @functools.wraps(method)
-    def wrapper(self: "A7V2", *args, **kwargs):
+    def wrapper(self: "P7", *args, **kwargs):
         if self.is_moving():
             raise StateError("Cannot start new motion while arm is moving.")
         return method(self, *args, **kwargs)
@@ -48,13 +48,13 @@ def _guard_not_moving(method):
     return wrapper
 
 
-class A7V2:
+class P7:
     """7-DoF arm with two motor variants on a single CAN bus.
 
     Joints 0-4 reuse :class:`linkerbot.arm.a7.motor.A7Motor` (CMD-byte
     protocol, drive-side trapezoidal trajectory generation).
 
-    Joints 5-6 use :class:`linkerbot.arm.a7_v2.motor_v2.MotorV2`
+    Joints 5-6 use :class:`linkerbot.arm.p7.motor_v2.MotorV2`
     (packed-frame protocol, Servo control mode with drive-side PD only —
     no internal trajectory generator).
 
@@ -94,7 +94,7 @@ class A7V2:
         from linkerbot.arm.kinetix import ArmKinetix
 
         self._kx: ArmKinetix = ArmKinetix.from_builtin(
-            "a7_v2", side, tcp_offset=tcp_offset, world_frame=world_frame
+            "p7", side, tcp_offset=tcp_offset, world_frame=world_frame
         )
         self._control_mode: ControlMode | None = None
         self._motion_timer = MotionTimer()
@@ -269,7 +269,7 @@ class A7V2:
         *,
         blocking: bool = True,
     ) -> None:
-        # A7V2 cannot rely on the V1 motors' drive-side trapezoidal alone,
+        # P7 cannot rely on the V1 motors' drive-side trapezoidal alone,
         # because the V2 motors (joints 5-6) have no drive-side trajectory
         # generator and would step-respond to a one-shot set_angle. We
         # host-stream interpolated waypoints to all 7 motors in lockstep,
@@ -504,7 +504,7 @@ class A7V2:
             pass
         self._closed = True
 
-    def __enter__(self) -> "A7V2":
+    def __enter__(self) -> "P7":
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
