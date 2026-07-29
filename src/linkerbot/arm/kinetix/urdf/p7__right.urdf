@@ -18,7 +18,7 @@
     <origin xyz="0 0 0" rpy="0 0 0" />
     <parent link="R_arm_root" />
     <child link="R1_Link" />
-    <axis xyz="0 1 0" />
+    <axis xyz="0 -1 0" />
     <limit lower="-2.91" upper="2.91" effort="80" velocity="10.47" />
   </joint>
 
@@ -36,8 +36,8 @@
     <origin xyz="-3.32E-05 -0.058001 0" rpy="0 0 0" />
     <parent link="R1_Link" />
     <child link="R2_Link" />
-    <axis xyz="-1 0 0" />
-    <limit lower="-0.07" upper="3.2" effort="80" velocity="10.47" />
+    <axis xyz="1 0 0" />
+    <limit lower="-3.2" upper="0.07" effort="80" velocity="10.47" />
   </joint>
 
   <link name="R3_Link">
@@ -54,7 +54,7 @@
     <origin xyz="2.5018E-05 0 -0.123" rpy="0 0 0" />
     <parent link="R2_Link" />
     <child link="R3_Link" />
-    <axis xyz="0 0 1" />
+    <axis xyz="0 0 -1" />
     <limit lower="-2.69" upper="2.69" effort="36" velocity="9.1" />
   </joint>
 
@@ -90,7 +90,7 @@
     <origin xyz="0 0 -0.124" rpy="0 0 0" />
     <parent link="R4_Link" />
     <child link="R5_Link" />
-    <axis xyz="0 0 1" />
+    <axis xyz="0 0 -1" />
     <limit lower="-2.69" upper="2.69" effort="36" velocity="9.1" />
   </joint>
 
@@ -126,7 +126,7 @@
     <origin xyz="2.5631E-05 0 -0.0655" rpy="0 0 0" />
     <parent link="R6_Link" />
     <child link="R7_Link" />
-    <axis xyz="-1 0 0" />
+    <axis xyz="1 0 0" />
     <limit lower="-1.59" upper="1.59" effort="18" velocity="7.33" />
   </joint>
 
