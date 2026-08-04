@@ -83,6 +83,7 @@ with L30(
     interface_type="socketcan",
     channel="can0",
     node_id=1,
+    frame_type=0x04,  # 默认值：CAN FD，不启用发送端 BRS
     auto_start_periodic=False,
 ) as hand:
     print(hand.version.get_device_info(timeout_ms=1000))
@@ -100,6 +101,7 @@ hand = L30(
     host_id=0,
     device_index=0,
     channel_index=0,
+    frame_type=0x04,
     auto_start_periodic=True,
 )
 hand.close()
@@ -113,6 +115,7 @@ hand.close()
 | `channel_index`       | `int`                        | 该 CANFD 模块上的第几个通道，默认 `0`                             |
 | `library_path`        | `str \| Path \| None`        | 厂商 CANFD 动态库路径；默认走系统 loader、环境变量和包内 fallback |
 | `config`              | `CANFDConfigOptions \| None` | CANFD 波特率等配置；不传时使用默认配置                            |
+| `frame_type`          | `int \| None`                | 默认 `0x04`（FD 无 BRS）；传 `0x0C` 显式启用 FD+BRS              |
 | `auto_start_periodic` | `bool`                       | 是否在初始化后自动开启默认角度周期上报，默认 `True`               |
 | `dispatcher`          | `L30DispatcherLike \| None`  | 测试或自定义 CANFD 后端注入用；普通用户不需要传                   |
 | `interface_type`      | `"ctypes" \| "socketcan"`    | CAN FD 后端；默认 `"ctypes"`                                      |
@@ -122,6 +125,9 @@ hand.close()
 | `auto_reconfigure`    | `bool`                       | 是否允许 SDK 重新配置 SocketCAN 接口，默认 `False`                |
 
 推荐使用 `with L30(...) as hand:`，退出代码块时会自动释放连接资源。
+L30 的主机发送帧默认不启用 BRS；SocketCAN 链路仍应配置 5 Mbit/s 数据段，
+用于接收设备可能发送的 BRS 响应。只有适配器已验证支持稳定发送 BRS 时，
+才建议传 `frame_type=0x0C`。
 
 ## 关节说明
 

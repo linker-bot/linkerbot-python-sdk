@@ -252,6 +252,7 @@ def build_message(
     src_id: int,
     data: bytes,
     dlc: int | None = None,
+    frame_type: int | None = None,
 ) -> CANFDMessage:
     """Build a CANFDMessage for one L30 protocol frame.
 
@@ -263,6 +264,7 @@ def build_message(
         src_id: Source node ID.
         data: Encoded L30 payload.
         dlc: Optional CANFD DLC override.
+        frame_type: Optional CANFD frame type override.
 
     Returns:
         CANFDMessage with an extended L30 arbitration ID.
@@ -279,6 +281,7 @@ def build_message(
         data=data,
         dlc=dlc,
         is_extended_id=True,
+        frame_type=frame_type,
     )
 
 

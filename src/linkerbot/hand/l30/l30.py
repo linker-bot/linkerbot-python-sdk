@@ -51,6 +51,7 @@ from .version import VersionManager
 _DEFAULT_POLL_INTERVALS: dict[SensorSource, float] = {
     SensorSource.ANGLE: 1 / 60,
 }
+_DEFAULT_FRAME_TYPE = 0x04
 _DEFAULT_PERIODIC_TIMEOUT_MS = 100
 _THREAD_JOIN_TIMEOUT_S = 2.0
 
@@ -70,6 +71,10 @@ class L30:
       python-can. Requires the link to be configured via ``ip link``; the SDK
       checks the current link state and refuses to silently override it.
 
+    Outgoing frames default to ``frame_type=0x04`` (CAN FD without bit-rate
+    switching). Pass ``frame_type=0x0C`` only when the adapter's BRS transmit
+    path has been verified with the target hardware.
+
     Use L30 as a context manager so the dispatcher and background workers are
     stopped reliably.
 
@@ -84,7 +89,11 @@ class L30:
     SocketCAN FD on Linux. Bring the link up first, for example:
 
     ```bash
-    sudo ip link set can0 up type can bitrate 1000000 dbitrate 5000000 fd on
+    sudo ip link set can0 down
+    sudo ip link set can0 type can \
+      bitrate 1000000 sample-point 0.800 \
+      dbitrate 5000000 dsample-point 0.750 fd on
+    sudo ip link set can0 up
     ```
 
     Then:
@@ -119,6 +128,7 @@ class L30:
         channel_index: int = 0,
         library_path: str | Path | None = None,
         config: CANFDConfigOptions | None = None,
+        frame_type: int | None = _DEFAULT_FRAME_TYPE,
         auto_start_periodic: bool = True,
         dispatcher: L30DispatcherLike | None = None,
         interface_type: Literal["ctypes", "socketcan"] = "ctypes",
@@ -142,6 +152,10 @@ class L30:
             config: CANFD adapter configuration. Used when
                 ``interface_type="ctypes"``. If omitted, the CANFD backend uses
                 its default nominal/data baud and frame settings.
+            frame_type: CANFD frame type applied to every outgoing frame.
+                Defaults to ``0x04`` (CAN FD without bit-rate switching).
+                ``0x0C`` enables bit-rate switching; None delegates the choice
+                to the backend or ``config``.
             auto_start_periodic: Whether to enable the default angle periodic
                 report immediately after initialization.
             dispatcher: Optional dispatcher-like transport. Pass this for tests
@@ -186,6 +200,11 @@ class L30:
             raise ValidationError(
                 f"interface_type must be 'ctypes' or 'socketcan', got {interface_type!r}"
             )
+        if frame_type is not None:
+            if not isinstance(frame_type, int) or isinstance(frame_type, bool):
+                raise ValidationError("frame_type must be int")
+            if frame_type < 0 or frame_type > 0xFF:
+                raise ValidationError("frame_type must be between 0 and 255")
 
         self._bus_error: Exception | None = None
         self._owns_dispatcher = dispatcher is None
@@ -215,7 +234,12 @@ class L30:
             )
         self._dispatcher = dispatcher
         try:
-            self._client = L30Client(dispatcher, node_id=node_id, host_id=host_id)
+            self._client = L30Client(
+                dispatcher,
+                node_id=node_id,
+                host_id=host_id,
+                frame_type=frame_type,
+            )
 
             self.control = ControlManager(self._client)
             self.angle = AngleManager(self._client)

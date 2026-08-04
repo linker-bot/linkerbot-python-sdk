@@ -186,7 +186,7 @@ for index, spec in enumerate(O20_JOINT_SPECS):
 | 通信模型          | 父命令/子命令                      | 寄存器读写                             |
 | 触觉              | 单命令返回两帧                     | 每指两个 register 分别读               |
 | 周期上报          | 支持 (`hand.report`)               | 无 SDK 侧配置，固件端固定行为          |
-| 默认 `frame_type` | `0x0C`(带 FDBRS,5M 数据段)         | `0x04`(无 FDBRS,1M)                    |
+| 默认 `frame_type` | `0x04`(无 FDBRS,1M)                | `0x04`(无 FDBRS,1M)                    |
 | `device_id`       | 5 bit `NodeID`,主机 `host_id` 单独 | 8 bit 直接 device_id                   |
 
 ## 快照

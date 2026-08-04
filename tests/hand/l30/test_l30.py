@@ -122,6 +122,43 @@ def test_l30_rejects_invalid_interface_type() -> None:
         )
 
 
+@pytest.mark.parametrize("frame_type", [-1, 256, True, "0x04"])
+def test_l30_rejects_invalid_frame_type(frame_type) -> None:
+    with pytest.raises(ValidationError, match="frame_type"):
+        L30(
+            frame_type=frame_type,
+            dispatcher=FakeDispatcher(),
+            auto_start_periodic=False,
+        )
+
+
+def test_l30_defaults_outgoing_messages_to_fd_without_brs() -> None:
+    dispatcher = FakeDispatcher()
+    hand = L30(
+        dispatcher=dispatcher,
+        auto_start_periodic=False,
+    )
+
+    hand.angle.set_angles([0] * 17)
+
+    assert dispatcher.sent[-1].frame_type == 0x04
+    hand.close()
+
+
+def test_l30_allows_explicit_brs_frame_type() -> None:
+    dispatcher = FakeDispatcher()
+    hand = L30(
+        frame_type=0x0C,
+        dispatcher=dispatcher,
+        auto_start_periodic=False,
+    )
+
+    hand.angle.set_angles([0] * 17)
+
+    assert dispatcher.sent[-1].frame_type == 0x0C
+    hand.close()
+
+
 def test_l30_socketcan_requires_channel() -> None:
     with pytest.raises(ValidationError, match="channel"):
         L30(interface_type="socketcan", auto_start_periodic=False)

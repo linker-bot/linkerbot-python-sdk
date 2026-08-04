@@ -13,12 +13,15 @@ with L30(
     node_id=1,
     interface_type="socketcan",
     channel="can0",
+    frame_type=0x04,  # 默认值：CAN FD，不启用发送端 BRS
     auto_start_periodic=False,
 ) as hand:
     print(hand.version.get_device_info(timeout_ms=1000))
 ```
 
 `channel` 是 Linux 网络接口名，不是厂商适配器的整数 `channel_index`。
+L30 默认使用 `frame_type=0x04`；只有适配器已验证可稳定发送 BRS 时，
+才显式改为 `0x0C`。
 
 ## 单只手连接
 

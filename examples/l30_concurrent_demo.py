@@ -26,6 +26,7 @@ Common options:
     --flex-ratio 0.5       # safe travel of cycling joints, 0..1
     --speed 100 / --torque 200   # motion limits
     --tactile-at 2.0       # seconds into run to fire a tactile read
+    --frame-type 0x04      # CAN FD without BRS (default); 0x0C enables BRS
     --library-path / --node-id / --host-id / --device-index / --channel-index
 
 The output reports per-second rates of sent frames, periodic events
@@ -110,6 +111,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device-index", type=int, default=0)
     parser.add_argument("--channel-index", type=int, default=0)
     parser.add_argument(
+        "--frame-type",
+        type=_auto_int,
+        default=0x04,
+        help="outgoing frame type: 0x04=CAN FD without BRS, 0x0C=CAN FD+BRS",
+    )
+    parser.add_argument(
         "--timeout-ms",
         type=float,
         default=1000.0,
@@ -141,7 +148,8 @@ def run() -> None:
 
     print(
         f"[demo] open L30 (node={args.node_id}, host={args.host_id}, "
-        f"device={args.device_index}, channel={args.channel_index})"
+        f"device={args.device_index}, channel={args.channel_index}, "
+        f"frame_type=0x{args.frame_type:02X})"
     )
     print(
         f"[demo] control_hz={args.hz:.0f}  duration={args.duration:.1f}s  "
@@ -154,6 +162,7 @@ def run() -> None:
         device_index=args.device_index,
         channel_index=args.channel_index,
         library_path=args.library_path,
+        frame_type=args.frame_type,
         auto_start_periodic=True,  # device-side angle reports flow into stream()
     ) as hand:
         hand.control.enable(timeout_ms=args.timeout_ms)
@@ -330,6 +339,10 @@ def _print_summary(stats: dict[str, float], *, events_received: int) -> None:
         "events/s is healthy\n[demo]         while frames/s is high, "
         "concurrent send+recv is working."
     )
+
+
+def _auto_int(value: str) -> int:
+    return int(value, 0)
 
 
 if __name__ == "__main__":

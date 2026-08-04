@@ -47,7 +47,7 @@ sudo ip link set can0 up
 ip -details -statistics link show can0
 ```
 
-O20 和 O30i 默认发送 CAN FD 帧但不启用 bit-rate switching；同一条按上述方式配置的 CAN FD 链路可以使用，但两者帧本身仍按默认 `frame_type=0x04` 发送。不要为了 O20/O30i 手动改成 L30 的 `0x0C`。
+L30、O20 和 O30i 默认都使用 `frame_type=0x04`，即发送 CAN FD 帧但不启用 bit-rate switching。同一条按上述方式配置的 CAN FD 链路仍需保留 5 Mbit/s 数据段，以接收设备可能发送的 BRS 帧。
 
 ## 连接 L30
 
@@ -61,6 +61,7 @@ with L30(
     host_id=0,
     interface_type="socketcan",
     channel="can0",
+    frame_type=0x04,  # 默认值：CAN FD，不启用发送端 BRS
     auto_start_periodic=False,
 ) as hand:
     info = hand.version.get_device_info(timeout_ms=1000)
@@ -75,11 +76,14 @@ L30 的 SocketCAN 参数：
 | `channel`          | `None`      | SocketCAN 接口名，例如 `"can0"`          |
 | `bitrate`          | `1_000_000` | 仲裁段速率                               |
 | `data_bitrate`     | `5_000_000` | 数据段速率                               |
+| `frame_type`       | `0x04`      | CAN FD、不启用 BRS；`0x0C` 显式启用 BRS |
 | `auto_reconfigure` | `False`     | 是否允许 SDK 调用 `ip link` 重新配置接口 |
 | `node_id`          | `1`         | L30 设备 NodeID，范围 1～31              |
 | `host_id`          | `0`         | 主机节点 ID，范围 0～31                  |
 
-L30 默认使用 CAN FD+BRS，数据段会切换到 `data_bitrate`。
+L30 默认让主机请求保持 CAN FD、但不切换数据速率。设备返回帧仍可能
+启用 BRS，因此 SocketCAN 接口仍需按 `data_bitrate` 配置。只有确认适配器
+能够稳定发送 BRS 帧时，才应显式传 `frame_type=0x0C`。
 
 ## 连接 O20
 
@@ -204,6 +208,7 @@ ip -details link show can0
 - 总线两端是否各有一个 120 Ω 终端电阻；
 - L30 的 `node_id`、O20 的 `side/device_id`，或 O30i 的 `request_id/response_id` 是否与设备一致；
 - `ip -details -statistics link show can0` 中是否出现 `bus-off`、错误计数持续增长；
+- 是否显式设置了 `frame_type=0x0C`；若 BRS 发送后 bus-off 或发送队列卡住，恢复默认 `0x04`；
 - `candump -tz -x can0` 是否能看到请求帧和设备应答帧。
 
 ### `Operation not permitted`

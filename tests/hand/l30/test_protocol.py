@@ -65,6 +65,20 @@ def test_parse_can_id_round_trips_fields() -> None:
     assert frame_id.to_int() == 0x0220E100
 
 
+def test_build_message_preserves_frame_type_override() -> None:
+    message = protocol.build_message(
+        parent=L30_PARENT_QUERY,
+        subcmd=L30_SUBCMD_POSITION,
+        access=L30_ACCESS_READ,
+        dst_id=1,
+        src_id=0,
+        data=protocol.empty_request_payload(),
+        frame_type=0x04,
+    )
+
+    assert message.frame_type == 0x04
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

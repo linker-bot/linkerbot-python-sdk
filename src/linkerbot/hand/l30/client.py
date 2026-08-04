@@ -63,7 +63,12 @@ class L30Client:
     """
 
     def __init__(
-        self, dispatcher: L30DispatcherLike, *, node_id: int, host_id: int
+        self,
+        dispatcher: L30DispatcherLike,
+        *,
+        node_id: int,
+        host_id: int,
+        frame_type: int | None = None,
     ) -> None:
         """Initialize the protocol client.
 
@@ -71,6 +76,8 @@ class L30Client:
             dispatcher: Transport backend that sends and receives CANFD messages.
             node_id: L30 device node ID used as destination ID for requests.
             host_id: Host node ID used as source ID for requests.
+            frame_type: Optional CANFD frame type override applied to every
+                outgoing frame. When None, the dispatcher applies its default.
 
         Raises:
             ValidationError: If node_id or host_id is outside the L30 ID range.
@@ -84,6 +91,7 @@ class L30Client:
         self._dispatcher = dispatcher
         self._node_id = node_id
         self._host_id = host_id
+        self._frame_type = frame_type
         self._lock = threading.Lock()
         self._send_condition = threading.Condition(self._lock)
         self._sending_threads: dict[int, int] = {}
@@ -355,6 +363,7 @@ class L30Client:
             src_id=self._host_id,
             data=payload,
             dlc=dlc,
+            frame_type=self._frame_type,
         )
 
     def _send_message(self, message: CANFDMessage) -> None:

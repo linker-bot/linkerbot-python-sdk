@@ -18,6 +18,7 @@ Common options:
     --duration 5           # total runtime in seconds
     --flex-ratio 0.9       # how far to flex (1.0 = up to documented max; default 0.9)
     --speed 250 / --torque 800
+    --frame-type 0x04      # CAN FD without BRS (default); 0x0C enables BRS
     --library-path / --node-id / --host-id / --device-index / --channel-index
     --timeout-ms 1000      # ACK timeout for enable/disable
 
@@ -131,6 +132,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device-index", type=int, default=0)
     parser.add_argument("--channel-index", type=int, default=0)
     parser.add_argument(
+        "--frame-type",
+        type=_auto_int,
+        default=0x04,
+        help="outgoing frame type: 0x04=CAN FD without BRS, 0x0C=CAN FD+BRS",
+    )
+    parser.add_argument(
         "--timeout-ms",
         type=float,
         default=1000.0,
@@ -177,7 +184,8 @@ def run() -> None:
 
     print(
         f"[demo] open L30 (node_id={args.node_id}, host_id={args.host_id}, "
-        f"device={args.device_index}, channel={args.channel_index})"
+        f"device={args.device_index}, channel={args.channel_index}, "
+        f"frame_type=0x{args.frame_type:02X})"
     )
     print(
         f"[demo] hz={args.hz:.0f}  duration={args.duration:.2f}s  "
@@ -191,6 +199,7 @@ def run() -> None:
         device_index=args.device_index,
         channel_index=args.channel_index,
         library_path=args.library_path,
+        frame_type=args.frame_type,
         auto_start_periodic=False,  # 关掉默认周期上报，发送节奏更稳
     ) as hand:
         print(
@@ -264,6 +273,10 @@ def _sleep(seconds: float, should_break) -> None:
         if remaining <= 0:
             return
         time.sleep(min(remaining, 0.05))
+
+
+def _auto_int(value: str) -> int:
+    return int(value, 0)
 
 
 if __name__ == "__main__":

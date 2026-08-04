@@ -3,7 +3,10 @@
 准备 SocketCAN FD（默认 1 Mbit/s 仲裁、5 Mbit/s 数据段）：
 
     sudo ip link set can0 down
-    sudo ip link set can0 up type can bitrate 1000000 dbitrate 5000000 fd on
+    sudo ip link set can0 type can \
+      bitrate 1000000 sample-point 0.800 \
+      dbitrate 5000000 dsample-point 0.750 fd on
+    sudo ip link set can0 up
 
 运行完整的只读诊断、周期上报、轮询和事件流示例：
 
@@ -21,6 +24,8 @@
 
 默认不会使能电机或下发运动目标。触觉读取默认开启，可用 ``--skip-tactile``
 跳过；触觉后台轮询开销较大，只有传入 ``--poll-tactile`` 才会启用。
+主机发送默认使用 ``frame_type=0x04``（CAN FD、无 BRS）；确认适配器的
+BRS 发送路径稳定后，可传 ``--frame-type 0x0C`` 显式启用 BRS。
 """
 
 from __future__ import annotations
@@ -60,6 +65,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host-id", type=_auto_int, default=0)
     parser.add_argument("--bitrate", type=int, default=1_000_000)
     parser.add_argument("--data-bitrate", type=int, default=5_000_000)
+    parser.add_argument(
+        "--frame-type",
+        type=_auto_int,
+        default=0x04,
+        help="发送帧类型：0x04=CAN FD 无 BRS（默认），0x0C=CAN FD+BRS",
+    )
     parser.add_argument(
         "--auto-reconfigure",
         action="store_true",
@@ -104,7 +115,7 @@ def run() -> None:
     print(
         f"[L30] 连接 {args.channel}: node_id={args.node_id}, "
         f"host_id={args.host_id}, bitrate={args.bitrate}, "
-        f"data_bitrate={args.data_bitrate}"
+        f"data_bitrate={args.data_bitrate}, frame_type=0x{args.frame_type:02X}"
     )
     with L30(
         node_id=args.node_id,
@@ -113,6 +124,7 @@ def run() -> None:
         channel=args.channel,
         bitrate=args.bitrate,
         data_bitrate=args.data_bitrate,
+        frame_type=args.frame_type,
         auto_reconfigure=args.auto_reconfigure,
         auto_start_periodic=False,
     ) as hand:
