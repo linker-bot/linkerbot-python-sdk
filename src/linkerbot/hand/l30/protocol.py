@@ -29,9 +29,11 @@ L30_SUBCMD_TEMPERATURE = 0x04
 L30_SUBCMD_FAULT = 0x05
 L30_SUBCMD_ENABLE = 0x07
 L30_SUBCMD_DISABLE = 0x08
+L30_SUBCMD_CONFIG_UNLOCK = 0x01
 L30_SUBCMD_DEVICE_INFO = 0x02
 L30_SUBCMD_PRODUCT_CODE = 0x03
 L30_SUBCMD_NODE_ID = 0x04
+L30_SUBCMD_ZERO_CALIBRATION = 0x05
 L30_SUBCMD_HAND_TYPE = 0x06
 L30_EMPTY_PAYLOAD_LENGTH = 0x00
 L30_SINGLE_FRAME_TRANSACTION = 0x00
@@ -45,6 +47,9 @@ L30_VECTOR_DLC = 0x0E
 L30_U8_VECTOR_BYTE_LENGTH = 17
 L30_U8_VECTOR_DLC = 0x0B
 L30_DEVICE_INFO_BYTE_LENGTH = 18
+L30_CONFIG_UNLOCK_PASSWORD = bytes.fromhex("12 34 56 78 9A BC")
+L30_CONFIG_UNLOCK_BYTE_LENGTH = len(L30_CONFIG_UNLOCK_PASSWORD)
+L30_CONFIG_UNLOCK_DLC = 0x09
 L30_PERIODIC_CONFIG_BYTE_LENGTH = 9
 L30_PERIODIC_CONFIG_DLC = 0x0A
 L30_PERIODIC_MIN_PERIOD_MS = 20
@@ -304,6 +309,21 @@ def ack_payload(status: int = L30_STATUS_OK) -> bytes:
     """
     _validate_range(status, "status", 0, 0xFF)
     return bytes([L30_EMPTY_PAYLOAD_LENGTH, L30_SINGLE_FRAME_TRANSACTION, status])
+
+
+def encode_config_unlock() -> bytes:
+    """Encode the fixed L30 configuration-unlock request payload.
+
+    The protocol assigns DLC 0x09 to this request. CAN FD transports pad this
+    eight-byte useful payload to the corresponding 12-byte wire length.
+
+    Returns:
+        Length/transaction header followed by the six-byte unlock password.
+    """
+    return (
+        bytes([L30_CONFIG_UNLOCK_BYTE_LENGTH, L30_SINGLE_FRAME_TRANSACTION])
+        + L30_CONFIG_UNLOCK_PASSWORD
+    )
 
 
 def encode_i16_vector(values: list[int] | tuple[int, ...]) -> bytes:

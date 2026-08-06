@@ -21,6 +21,7 @@
   - [版本信息](reference/l6/version.md)
 - [L30](reference/l30/README.md)
   - [通讯与生命周期](reference/l30/communication.md)
+  - [零点标定](reference/l30/calibration.md)
   - [角度控制](reference/l30/angle.md)
   - [速度控制](reference/l30/speed.md)
   - [扭矩控制](reference/l30/torque.md)

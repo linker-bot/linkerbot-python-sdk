@@ -1,5 +1,6 @@
 from .angle import AngleData, AngleManager
 from .bus import L30Bus
+from .calibration import CalibrationManager
 from .control import ControlManager
 from .current import CurrentData, CurrentManager
 from .events import (
@@ -34,6 +35,7 @@ __all__ = [
     "AngleData",
     "AngleEvent",
     "AngleManager",
+    "CalibrationManager",
     "ControlManager",
     "CurrentData",
     "CurrentEvent",

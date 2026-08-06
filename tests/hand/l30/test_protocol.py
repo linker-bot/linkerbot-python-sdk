@@ -118,6 +118,13 @@ def test_encode_i16_vector_uses_big_endian_payload() -> None:
     assert len(payload) == 36
 
 
+def test_encode_config_unlock_matches_protocol_password() -> None:
+    payload = protocol.encode_config_unlock()
+
+    assert payload == bytes.fromhex("06 00 12 34 56 78 9A BC")
+    assert protocol.L30_CONFIG_UNLOCK_DLC == 0x09
+
+
 def test_encode_u16_vector_validates_range() -> None:
     assert (
         protocol.encode_u16_vector(

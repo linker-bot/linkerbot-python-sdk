@@ -25,6 +25,7 @@ from linkerbot.queue import IterableQueue
 
 from . import protocol
 from .angle import AngleManager
+from .calibration import CalibrationManager
 from .client import L30Client, L30DispatcherLike
 from .control import ControlManager
 from .current import CurrentManager
@@ -109,6 +110,7 @@ class L30:
 
     Attributes:
         control: Manager for enable and disable commands.
+        calibration: Manager for guarded all-joint zero-point calibration.
         angle: Manager for joint angle commands and angle sensor data.
         speed: Manager for motor speed commands and speed sensor data.
         torque: Manager for target torque commands.
@@ -242,6 +244,7 @@ class L30:
             )
 
             self.control = ControlManager(self._client)
+            self.calibration = CalibrationManager(self._client, self.control)
             self.angle = AngleManager(self._client)
             self.speed = SpeedManager(self._client)
             self.torque = TorqueManager(self._client)

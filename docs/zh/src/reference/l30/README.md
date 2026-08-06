@@ -115,7 +115,7 @@ hand.close()
 | `channel_index`       | `int`                        | 该 CANFD 模块上的第几个通道，默认 `0`                             |
 | `library_path`        | `str \| Path \| None`        | 厂商 CANFD 动态库路径；默认走系统 loader、环境变量和包内 fallback |
 | `config`              | `CANFDConfigOptions \| None` | CANFD 波特率等配置；不传时使用默认配置                            |
-| `frame_type`          | `int \| None`                | 默认 `0x04`（FD 无 BRS）；传 `0x0C` 显式启用 FD+BRS              |
+| `frame_type`          | `int \| None`                | 默认 `0x04`（FD 无 BRS）；传 `0x0C` 显式启用 FD+BRS               |
 | `auto_start_periodic` | `bool`                       | 是否在初始化后自动开启默认角度周期上报，默认 `True`               |
 | `dispatcher`          | `L30DispatcherLike \| None`  | 测试或自定义 CANFD 后端注入用；普通用户不需要传                   |
 | `interface_type`      | `"ctypes" \| "socketcan"`    | CAN FD 后端；默认 `"ctypes"`                                      |
@@ -171,6 +171,7 @@ for index, spec in enumerate(L30_JOINT_SPECS):
 | 模块                                                     | 说明                                   | 文档                                |
 | -------------------------------------------------------- | -------------------------------------- | ----------------------------------- |
 | `hand.control`                                           | 电机使能、失能                         | [communication](./communication.md) |
+| `hand.calibration`                                       | 全部关节零点标定                       | [calibration](./calibration.md)     |
 | `hand.angle`                                             | 角度设置、角度读取、角度快照           | [angle](./angle.md)                 |
 | `hand.speed`                                             | 速度设置、速度读取、速度快照           | [speed](./speed.md)                 |
 | `hand.torque`                                            | 力矩目标设置、力矩目标快照             | [torque](./torque.md)               |
