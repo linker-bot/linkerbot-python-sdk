@@ -165,6 +165,14 @@ class L25:
             "fault": self.fault._send_sense_request,
             "force_sensor": self.force_sensor._send_sense_request,
         }
+        self._polling_cancellers: dict[str, Callable[[], None]] = {
+            "angle": self.angle._cancel_sense_request,
+            "speed": self.speed._cancel_sense_request,
+            "torque": self.torque._cancel_sense_request,
+            "temperature": self.temperature._cancel_sense_request,
+            "fault": self.fault._cancel_sense_request,
+            "force_sensor": self.force_sensor._cancel_sense_request,
+        }
 
         # Register event sinks
         self.angle._set_event_sink(lambda d: self._push_event(AngleEvent(data=d)))
@@ -353,9 +361,12 @@ class L25:
 
     def _polling_loop(self, source_name: str, interval: float) -> None:
         sender = self._polling_senders[source_name]
-        while not self._stop_polling.is_set():
-            sender()
-            self._stop_polling.wait(interval)
+        try:
+            while not self._stop_polling.is_set():
+                sender()
+                self._stop_polling.wait(interval)
+        finally:
+            self._polling_cancellers[source_name]()
 
     def _push_event(self, event: SensorEvent) -> None:
         q = self._unified_queue

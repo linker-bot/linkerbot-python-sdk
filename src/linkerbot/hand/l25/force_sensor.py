@@ -6,6 +6,7 @@ This module provides force sensor management for the L25 robotic hand:
 - ForceSensorManager: Manages all 5 fingers' force sensors (thumb, index, middle, ring, pinky).
 """
 
+import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -16,7 +17,7 @@ import numpy.typing as npt
 
 from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import TimeoutError, ValidationError
-from linkerbot.relay import DataRelay
+from linkerbot.hand._polling_relay import PollingDataRelay
 
 
 @dataclass(frozen=True)
@@ -107,10 +108,7 @@ class SingleForceSensorManager:
 
         # Frame assembly state
         self._frame_batch: FrameBatch | None = None
-        self._in_flight = False
-        self._in_flight_since: float = 0
-
-        self._relay = DataRelay[ForceSensorData]()
+        self._relay = PollingDataRelay[ForceSensorData](self._clear_frame_batch)
 
     def get_blocking(self, timeout_ms: float = 1000) -> ForceSensorData:
         """Get force sensor data with blocking wait.
@@ -134,10 +132,7 @@ class SingleForceSensorManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-        self._frame_batch = None
-        self._in_flight = False
-        self._send_request()
-        return self._relay.wait(timeout_ms / 1000.0)
+        return self._relay.request(self._send_request_frame, timeout_ms / 1000.0)
 
     def get_snapshot(self) -> ForceSensorData | None:
         """Get the most recent cached sensor data (non-blocking).
@@ -155,17 +150,16 @@ class SingleForceSensorManager:
     def _set_event_sink(self, sink: Callable[[ForceSensorData], None]) -> None:
         self._relay.set_sink(sink)
 
-    _IN_FLIGHT_TIMEOUT_S = 0.2
-
     def _send_request(self) -> None:
-        if (
-            self._in_flight
-            and (time.monotonic() - self._in_flight_since) < self._IN_FLIGHT_TIMEOUT_S
-        ):
-            return
-        self._in_flight = True
-        self._in_flight_since = time.monotonic()
+        self._relay.poll(self._send_request_frame)
+
+    def _cancel_request(self) -> None:
+        self._relay.cancel_polling()
+
+    def _clear_frame_batch(self) -> None:
         self._frame_batch = None
+
+    def _send_request_frame(self) -> None:
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=self._request_cmd,
@@ -201,8 +195,6 @@ class SingleForceSensorManager:
         # Check if we have all frames
         if self._frame_batch.is_complete():
             complete_data = self._frame_batch.assemble()
-            self._in_flight = False
-            self._frame_batch = None
             self._relay.push(complete_data)
 
 
@@ -212,10 +204,6 @@ class ForceSensorManager:
     This class manages force sensors for all 5 fingers (thumb, index, middle, ring, pinky)
     and provides unified access to sensor data from all fingers.
     """
-
-    _MCU_INTER_REQUEST_DELAY_S = (
-        0.0025  # 2.5ms - MCU can only handle one finger at a time
-    )
 
     FINGER_COMMANDS = {
         "thumb": 0xB1,
@@ -234,6 +222,7 @@ class ForceSensorManager:
         """
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
+        self._blocking_lock = threading.Lock()
 
         # Create a SingleForceSensorManager for each finger
         self._fingers: dict[str, SingleForceSensorManager] = {
@@ -273,7 +262,10 @@ class ForceSensorManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
+        with self._blocking_lock:
+            return self._get_all_blocking(timeout_ms)
 
+    def _get_all_blocking(self, timeout_ms: float) -> AllFingersData:
         deadline = time.monotonic() + timeout_ms / 1000.0
         results: dict[str, ForceSensorData] = {}
 
@@ -364,8 +356,9 @@ class ForceSensorManager:
                 self._event_sink(snapshot)
 
     def _send_sense_request(self) -> None:
-        finger_list = list(self._fingers.values())
-        for i, sensor in enumerate(finger_list):
-            if i > 0:
-                time.sleep(self._MCU_INTER_REQUEST_DELAY_S)
+        for sensor in self._fingers.values():
             sensor._send_request()
+
+    def _cancel_sense_request(self) -> None:
+        for sensor in self._fingers.values():
+            sensor._cancel_request()

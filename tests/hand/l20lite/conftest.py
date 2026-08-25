@@ -2,6 +2,7 @@
 
 import os
 import time
+from pathlib import Path
 from typing import Literal, cast
 
 import pytest
@@ -48,7 +49,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 @pytest.fixture(scope="module")
-def l20lite_hand():
+def l20lite_hand(isolate_hand_config: Path):
     """Create L20lite hand instance for the test module.
 
     Uses environment variables for configuration:
@@ -58,7 +59,11 @@ def l20lite_hand():
     interface = os.environ.get("CAN_INTERFACE", "can0")
     side = cast(Literal["left", "right"], os.environ.get("L20LITE_SIDE", "left"))
 
-    with L20lite(side=side, interface_name=interface) as hand:
+    with L20lite(
+        side=side,
+        interface_name=interface,
+        angle_mapping_path=isolate_hand_config / "l20lite.toml",
+    ) as hand:
         hand.speed.set_speeds([100.0] * 10)
         hand.angle.set_angles([100.0] * 10)
         time.sleep(2.0)
@@ -66,12 +71,16 @@ def l20lite_hand():
 
 
 @pytest.fixture(scope="session")
-def closed_hand():
+def closed_hand(isolate_hand_config: Path):
     """Create a closed L20lite hand instance for post-close tests."""
     interface = os.environ.get("CAN_INTERFACE", "can0")
     side = cast(Literal["left", "right"], os.environ.get("L20LITE_SIDE", "left"))
 
-    with L20lite(side=side, interface_name=interface) as hand:
+    with L20lite(
+        side=side,
+        interface_name=interface,
+        angle_mapping_path=isolate_hand_config / "l20lite.toml",
+    ) as hand:
         pass
     return hand
 

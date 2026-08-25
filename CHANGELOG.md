@@ -43,6 +43,11 @@
 
 ### 修复
 
+- 修复经典手型快速响应丢失与 polling 请求状态竞争，移除五指触觉轮询固定发送间隔，并使
+  CAN FD 后台物理发送失败可由 O20/L30 调用方观测
+  ([#175](https://gitea.linkerhub.work/linker-bot/linkerbot-python-sdk/pulls/175))。
+- CAN FD 通用默认帧改为不启用 BRS，并缓存厂商动态库句柄、隔离硬件测试配置路径
+  ([#175](https://gitea.linkerhub.work/linker-bot/linkerbot-python-sdk/pulls/175))。
 - 修复 O30i 百分比角度方向与实物语义相反的问题：`0%` 为张开端、`100%` 为闭合端；原始值 API 保持设备协议方向
   ([#150](https://gitea.linkerhub.work/linker-bot/linkerbot-python-sdk/pulls/150))。
 - 统一管理厂商 CAN FD 动态库的初始化与退出生命周期，避免重复初始化和提前释放

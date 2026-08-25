@@ -12,8 +12,8 @@ import can
 
 from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import ValidationError
+from linkerbot.hand._polling_relay import PollingDataRelay
 from linkerbot.hand.o6.fault import FaultCode
-from linkerbot.relay import DataRelay
 
 _JOINT_COUNT = 10
 
@@ -195,10 +195,8 @@ class FaultManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-        self._relay = DataRelay[FaultData]()
         self._pending: dict[int, list[FaultCode]] = {}
-        self._in_flight = False
-        self._in_flight_since: float = 0
+        self._relay = PollingDataRelay[FaultData](self._pending.clear)
 
     def get_blocking(self, timeout_ms: float = 100) -> FaultData:
         """Request and wait for current joint fault codes (blocking).
@@ -223,10 +221,7 @@ class FaultManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-        self._pending.clear()
-        self._in_flight = False
-        self._send_sense_request()
-        return self._relay.wait(timeout_ms / 1000.0)
+        return self._relay.request(self._send_request_frames, timeout_ms / 1000.0)
 
     def get_snapshot(self) -> FaultData | None:
         """Get the most recent cached fault data (non-blocking).
@@ -244,17 +239,13 @@ class FaultManager:
     def _set_event_sink(self, sink: Callable[[FaultData], None]) -> None:
         self._relay.set_sink(sink)
 
-    _IN_FLIGHT_TIMEOUT_S = 0.2
-
     def _send_sense_request(self) -> None:
-        if (
-            self._in_flight
-            and (time.monotonic() - self._in_flight_since) < self._IN_FLIGHT_TIMEOUT_S
-        ):
-            return
-        self._in_flight = True
-        self._in_flight_since = time.monotonic()
-        self._pending.clear()
+        self._relay.poll(self._send_request_frames)
+
+    def _cancel_sense_request(self) -> None:
+        self._relay.cancel_polling()
+
+    def _send_request_frames(self) -> None:
         for cmd in self._FRAME_MAP:
             msg = can.Message(
                 arbitration_id=self._arbitration_id,
@@ -295,6 +286,4 @@ class FaultManager:
 
         faults = L20liteFault(**kwargs)
         fault_data = FaultData(faults=faults, timestamp=time.time())
-        self._in_flight = False
-        self._pending.clear()
         self._relay.push(fault_data)

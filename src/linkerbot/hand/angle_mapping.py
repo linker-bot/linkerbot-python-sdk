@@ -11,6 +11,7 @@ persisted to a TOML file when they are created, updated, or reset.
 
 from __future__ import annotations
 
+import os
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -29,9 +30,6 @@ else:  # pragma: no cover - Python 3.10 fallback
 from linkerbot.exceptions import ValidationError
 
 _MAPPING_SIZE = 256
-_DEFAULT_MAPPING_PATH = (
-    Path.home() / ".config" / "linkerbot" / "hand_angle_mappings.toml"
-)
 
 
 class AngleMappingManager:
@@ -61,7 +59,7 @@ class AngleMappingManager:
         self._joint_names = list(joint_names)
         self._joint_count = len(joint_names)
         self._path = (
-            Path(mapping_path).expanduser() if mapping_path else _DEFAULT_MAPPING_PATH
+            Path(mapping_path).expanduser() if mapping_path else _default_mapping_path()
         )
         self._mapping = self._load_or_create()
 
@@ -145,6 +143,12 @@ class AngleMappingManager:
         tmp_path = self._path.with_name(f"{self._path.name}.tmp")
         tmp_path.write_text(tomli_w.dumps(data), encoding="utf-8")
         tmp_path.replace(self._path)
+
+
+def _default_mapping_path() -> Path:
+    config_home = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(config_home).expanduser() if config_home else Path.home() / ".config"
+    return base / "linkerbot" / "hand_angle_mappings.toml"
 
 
 def default_angle_mapping(joint_count: int) -> list[list[int]]:

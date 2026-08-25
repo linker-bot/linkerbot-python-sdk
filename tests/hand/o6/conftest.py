@@ -2,6 +2,7 @@
 
 import os
 import time
+from pathlib import Path
 from typing import Literal, cast
 
 import pytest
@@ -49,7 +50,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 @pytest.fixture(scope="module")
-def o6_hand():
+def o6_hand(isolate_hand_config: Path):
     """Create O6 hand instance for the test module.
 
     Uses environment variables for configuration:
@@ -59,7 +60,11 @@ def o6_hand():
     interface = os.environ.get("CAN_INTERFACE", "can0")
     side = cast(Literal["left", "right"], os.environ.get("O6_SIDE", "left"))
 
-    with O6(side=side, interface_name=interface) as hand:
+    with O6(
+        side=side,
+        interface_name=interface,
+        angle_mapping_path=isolate_hand_config / "o6.toml",
+    ) as hand:
         hand.speed.set_speeds([100.0] * 6)
         hand.acceleration.set_accelerations([100.0] * 6)
         hand.angle.set_angles([100.0] * 6)
@@ -68,12 +73,16 @@ def o6_hand():
 
 
 @pytest.fixture(scope="session")
-def closed_hand():
+def closed_hand(isolate_hand_config: Path):
     """Create a closed O6 hand instance for post-close tests."""
     interface = os.environ.get("CAN_INTERFACE", "can0")
     side = cast(Literal["left", "right"], os.environ.get("O6_SIDE", "left"))
 
-    with O6(side=side, interface_name=interface) as hand:
+    with O6(
+        side=side,
+        interface_name=interface,
+        angle_mapping_path=isolate_hand_config / "o6.toml",
+    ) as hand:
         pass
     return hand
 

@@ -110,7 +110,7 @@ def test_config_options_defaults_match_canfd_adapter_defaults() -> None:
     assert config.config == 0x07
     assert config.model == 0
     assert config.cantype == 1
-    assert config.frame_type == 0x0C
+    assert config.frame_type == 0x04
 
 
 @pytest.mark.parametrize("converter", [dlc_to_length, length_to_dlc])

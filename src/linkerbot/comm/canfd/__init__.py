@@ -1,5 +1,5 @@
 from .ctypes_backend import CanFDConfig, CANFDInterface, CanFDMsg, DevInfo
-from .dispatcher import CANFDMessageDispatcher
+from .dispatcher import CANFDMessageDispatcher, CANFDSendReceipt
 from .socketcan_backend import SocketCANFDBackend
 from .types import (
     CANFDBackend,
@@ -15,6 +15,7 @@ __all__ = [
     "CANFDInterface",
     "CANFDMessage",
     "CANFDMessageDispatcher",
+    "CANFDSendReceipt",
     "CanFDConfig",
     "CanFDMsg",
     "DevInfo",

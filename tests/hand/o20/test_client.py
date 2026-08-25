@@ -2,16 +2,35 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import Future
 
 import pytest
 
 from linkerbot.comm.canfd import CANFDMessage
-from linkerbot.exceptions import StateError, TimeoutError, ValidationError
+from linkerbot.exceptions import CANError, StateError, TimeoutError, ValidationError
 from linkerbot.hand.o20 import protocol
 from linkerbot.hand.o20.client import O20Client
 from tests.hand.o20.fakes import FakeDispatcher
 
 pytestmark = [pytest.mark.o20, pytest.mark.canfd]
+
+
+def test_write_propagates_physical_send_failure() -> None:
+    expected = CANError("physical send failed")
+    receipt = Future[None]()
+    receipt.set_exception(expected)
+
+    class ReceiptDispatcher(FakeDispatcher):
+        def send(self, message: CANFDMessage) -> Future[None]:
+            super().send(message)
+            return receipt
+
+    client = O20Client(ReceiptDispatcher(), device_id=0x01)
+
+    with pytest.raises(CANError) as raised:
+        client.write(register=protocol.O20_REG_TARGET_POS, payload=bytes(16))
+
+    assert raised.value is expected
 
 
 def test_read_only_unblocks_on_write_flag_zero_response() -> None:

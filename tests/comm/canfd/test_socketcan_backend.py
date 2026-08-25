@@ -288,7 +288,7 @@ def test_init_validates_arguments(fake_can_bus, with_ip_present, link_show) -> N
         SocketCANFDBackend(channel="can0", data_bitrate=-1)
 
 
-def test_send_translates_message_to_python_can_fd_frame(
+def test_send_defaults_to_fd_without_bitrate_switch(
     fake_can_bus, with_ip_present, link_show
 ) -> None:
     link_show.show_response = _link_show_proc(returncode=0, stdout=_link_show_payload())
@@ -305,7 +305,7 @@ def test_send_translates_message_to_python_can_fd_frame(
     assert msg.arbitration_id == 0x123
     assert msg.is_extended_id is False
     assert msg.is_fd is True
-    assert msg.bitrate_switch is True
+    assert msg.bitrate_switch is False
     assert bytes(msg.data) == payload
     assert sent.kwargs["timeout"] == pytest.approx(0.05)
     backend.close()

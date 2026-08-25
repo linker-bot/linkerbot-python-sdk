@@ -6,11 +6,11 @@ The vendor library documents two process-level entry points in
 - ``LibCANbus_Init`` allocates global system resources.
 - ``LibCANbus_Exit`` releases them and explicitly "prevents memory leaks".
 
-These must be called exactly once per loaded ``.so``/``.dll`` for the lifetime
-of the process, regardless of how many ``CANFDInterface`` instances are open.
-This module manages that lifecycle via a reference count keyed on the realpath
-of the loaded library so that multiple interfaces (e.g. several L30 hands on
-one bus) share a single Init/Exit pair.
+While one or more ``CANFDInterface`` instances are open, these entry points
+must be called as one shared Init/Exit pair per loaded ``.so``/``.dll``. This
+module keeps that vendor lifecycle separate from operating-system handle
+lifetime: main-library and Linux dependency handles stay cached for the rest
+of the process and are never explicitly unloaded.
 
 Forking after a CANFDInterface is open is not supported: the refcount lives in
 the parent's memory and child copies will desync. Call ``L30.close()`` before
@@ -54,10 +54,25 @@ _LINUX_USB_LIBRARY_NAME = "libusb-1.0.so.0"
 
 _logger = logging.getLogger(__name__)
 
+_library_load_lock = threading.Lock()
+_library_handle_cache: dict[str, Any] = {}
+_dependency_load_lock = threading.Lock()
+_dependency_preload_attempted: set[str] = set()
+_dependency_handle_cache: dict[str, Any] = {}
 _lifecycle_lock = threading.Lock()
 _lifecycle_refcount: dict[str, int] = {}
 _lifecycle_lib: dict[str, Any] = {}
 _finalize_safe = True
+
+
+def _canonical_library_key(candidate: str | Path) -> str:
+    """Return a stable process-cache key for a loader candidate."""
+    value = os.fspath(candidate)
+    has_separator = os.sep in value or (os.altsep is not None and os.altsep in value)
+    if isinstance(candidate, Path) or os.path.isabs(value) or has_separator:
+        path = os.path.realpath(os.path.abspath(os.path.expanduser(value)))
+        return os.path.normcase(path)
+    return f"loader:{platform.system().lower()}:{os.path.normcase(value)}"
 
 
 def _library_key(lib: Any) -> str:
@@ -72,7 +87,7 @@ def _library_key(lib: Any) -> str:
     name = getattr(lib, "_name", None)
     if name:
         try:
-            return os.path.realpath(name)
+            return _canonical_library_key(str(name))
         except OSError:
             return str(name)
     return f"id:{id(lib)}"
@@ -698,11 +713,20 @@ class CANFDInterface:
 def _load_library(library_path: str | Path | None) -> Any:
     _preload_vendor_dependencies()
     errors: list[str] = []
+    loader = _ctypes_loader()
     for candidate in _library_candidates(library_path):
-        try:
-            return _ctypes_loader()(str(candidate))
-        except OSError as error:
-            errors.append(f"{candidate}: {error}")
+        key = _canonical_library_key(candidate)
+        with _library_load_lock:
+            cached = _library_handle_cache.get(key)
+            if cached is not None:
+                return cached
+            try:
+                lib = loader(str(candidate))
+            except OSError as error:
+                errors.append(f"{candidate}: {error}")
+                continue
+            _library_handle_cache[key] = lib
+            return lib
 
     attempted = "\n".join(errors) if errors else "no candidates"
     raise CANError(
@@ -716,10 +740,16 @@ def _load_library(library_path: str | Path | None) -> Any:
 def _preload_vendor_dependencies() -> None:
     if platform.system() != "Linux":
         return
-    try:
-        ctypes.CDLL(_LINUX_USB_LIBRARY_NAME, mode=ctypes.RTLD_GLOBAL)
-    except OSError:
-        return
+    key = _canonical_library_key(_LINUX_USB_LIBRARY_NAME)
+    with _dependency_load_lock:
+        if key in _dependency_preload_attempted:
+            return
+        _dependency_preload_attempted.add(key)
+        try:
+            handle = ctypes.CDLL(_LINUX_USB_LIBRARY_NAME, mode=ctypes.RTLD_GLOBAL)
+        except OSError:
+            return
+        _dependency_handle_cache[key] = handle
 
 
 def _library_candidates(library_path: str | Path | None) -> list[str | Path]:

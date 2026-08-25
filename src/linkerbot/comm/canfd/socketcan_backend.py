@@ -208,9 +208,13 @@ class SocketCANFDBackend:
             raise CANError(f"SocketCAN FD send failed: {error}") from error
 
     def _frame_flags(self, message: CANFDMessage) -> tuple[bool, bool]:
-        """Resolve vendor FrameType bits to python-can frame flags."""
+        """Resolve vendor FrameType bits to python-can frame flags.
+
+        ``None`` inherits the backend's FD mode without implicitly enabling
+        bit-rate switching. BRS requires an explicit ``frame_type=0x0C``.
+        """
         if message.frame_type is None:
-            return self._fd, self._fd
+            return self._fd, False
 
         is_fd = bool(message.frame_type & _FRAME_TYPE_FD)
         bitrate_switch = bool(message.frame_type & _FRAME_TYPE_BRS)

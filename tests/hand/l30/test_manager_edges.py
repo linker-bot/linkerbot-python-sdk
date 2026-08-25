@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import threading
+from concurrent.futures import Future
 
 import numpy as np
 import pytest
 
 from linkerbot.comm.canfd import CANFDMessage
-from linkerbot.exceptions import StateError, TimeoutError, ValidationError
+from linkerbot.exceptions import CANError, StateError, TimeoutError, ValidationError
 from linkerbot.hand.l30 import protocol
 from linkerbot.hand.l30.angle import AngleManager
 from linkerbot.hand.l30.client import L30Client
@@ -21,6 +22,24 @@ from linkerbot.hand.l30.torque import TorqueManager
 from tests.hand.l30.fakes import FakeDispatcher
 
 pytestmark = [pytest.mark.l30, pytest.mark.canfd]
+
+
+def test_send_no_ack_propagates_physical_send_failure() -> None:
+    expected = CANError("physical send failed")
+    receipt = Future[None]()
+    receipt.set_exception(expected)
+
+    class ReceiptDispatcher(FakeDispatcher):
+        def send(self, message: CANFDMessage) -> Future[None]:
+            super().send(message)
+            return receipt
+
+    client = L30Client(ReceiptDispatcher(), node_id=1, host_id=0)
+
+    with pytest.raises(CANError) as raised:
+        client.send_no_ack(parent=0x01, subcmd=0x01, payload=b"\x00")
+
+    assert raised.value is expected
 
 
 def test_control_disable_sends_v2_write_ack_request() -> None:

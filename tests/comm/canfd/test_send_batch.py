@@ -278,8 +278,10 @@ def test_dispatcher_coalesces_queued_sends_into_batch() -> None:
         assert interface._gate_count == 1
 
         # Now stuff three frames; they all sit in the queue together.
-        for i in range(1, 4):
+        receipts = [
             dispatcher.send(CANFDMessage(arbitration_id=i, data=bytes([i])))
+            for i in range(1, 4)
+        ]
         # Release the gate; dispatcher should drain all three and batch them.
         gate.set()
 
@@ -291,6 +293,46 @@ def test_dispatcher_coalesces_queued_sends_into_batch() -> None:
         assert len(interface.batch_calls) == 1
         ids = [m.arbitration_id for m in interface.batch_calls[0]]
         assert ids == [1, 2, 3]
+        assert [receipt.result(timeout=1.0) for receipt in receipts] == [None] * 3
+    finally:
+        dispatcher.stop()
+
+
+def test_failed_batch_fails_every_frame_receipt() -> None:
+    expected = CANError("batch outcome is unknown")
+
+    class _FailingBatchInterface(_BatchInterface):
+        def send_batch(
+            self, messages: list[CANFDMessage], timeout_ms: int = 10
+        ) -> None:
+            _ = timeout_ms
+            self.batch_calls.append(list(messages))
+            raise expected
+
+    interface = _FailingBatchInterface()
+    gate = interface.install_first_send_gate()
+    dispatcher = CANFDMessageDispatcher(interface=interface)
+
+    try:
+        primer = dispatcher.send(CANFDMessage(arbitration_id=0, data=b"primer"))
+        deadline = time.monotonic() + 1.0
+        while interface._gate_count == 0 and time.monotonic() < deadline:
+            time.sleep(0.001)
+        receipts = [
+            dispatcher.send(CANFDMessage(arbitration_id=i, data=bytes([i])))
+            for i in range(1, 4)
+        ]
+        gate.set()
+
+        assert primer.result(timeout=1.0) is None
+        for receipt in receipts:
+            with pytest.raises(CANError) as raised:
+                receipt.result(timeout=1.0)
+            assert raised.value is expected
+        assert [
+            [message.arbitration_id for message in batch]
+            for batch in interface.batch_calls
+        ] == [[1, 2, 3]]
     finally:
         dispatcher.stop()
 

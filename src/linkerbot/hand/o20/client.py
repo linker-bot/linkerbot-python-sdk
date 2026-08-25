@@ -19,6 +19,7 @@ from typing import Protocol
 
 from linkerbot.comm.canfd import CANFDMessage
 from linkerbot.exceptions import StateError, TimeoutError, ValidationError
+from linkerbot.hand._send_receipt import SendReceiptLike, wait_for_send_receipt
 
 from . import protocol
 
@@ -31,7 +32,7 @@ class O20DispatcherLike(Protocol):
     a lightweight fake.
     """
 
-    def send(self, message: CANFDMessage) -> None:
+    def send(self, message: CANFDMessage) -> SendReceiptLike | None:
         """Send one CANFD message."""
         ...
 
@@ -122,7 +123,7 @@ class O20Client:
         payload: bytes,
         dlc: int | None = None,
     ) -> None:
-        """Send an O20 register write without waiting for a response.
+        """Send an O20 write without waiting for a device response.
 
         Args:
             register: O20 register address to write.
@@ -247,7 +248,8 @@ class O20Client:
                 self._sending_threads.get(current_thread, 0) + 1
             )
         try:
-            self._dispatcher.send(message)
+            receipt = self._dispatcher.send(message)
+            wait_for_send_receipt(receipt)
         finally:
             with self._send_condition:
                 remaining = self._sending_threads[current_thread] - 1
