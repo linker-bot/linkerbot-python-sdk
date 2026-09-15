@@ -44,5 +44,5 @@ class TestLifecycle:
 
     def test_operations_after_close_raise(self, closed_hand: L6):
         """Operations on a closed hand should raise an exception."""
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError, match="stopped CANMessageDispatcher"):
             closed_hand.angle.get_blocking()

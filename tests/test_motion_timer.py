@@ -1,6 +1,9 @@
 """Tests for MotionTimer."""
 
+import math
 import time
+
+import pytest
 
 from linkerbot.motion_timer import MotionTimer
 
@@ -89,3 +92,28 @@ class TestMotionTimer:
         elapsed = time.monotonic() - start
         assert result is True
         assert elapsed < 0.1
+
+    @pytest.mark.parametrize("duration", [-1.0, math.inf, math.nan, True, "1"])
+    def test_start_rejects_invalid_duration(self, duration: object):
+        timer = MotionTimer()
+
+        with pytest.raises(ValueError, match="finite, non-negative"):
+            timer.start(duration)  # ty: ignore[invalid-argument-type]
+
+    @pytest.mark.parametrize("timeout", [-1.0, math.inf, math.nan, True, "1"])
+    def test_wait_done_rejects_invalid_timeout(self, timeout: object):
+        timer = MotionTimer()
+
+        with pytest.raises(ValueError, match="finite, non-negative"):
+            timer.wait_done(timeout=timeout)  # ty: ignore[invalid-argument-type]
+
+    def test_stale_callback_cannot_complete_restarted_timer(self):
+        timer = MotionTimer()
+        timer.start(10.0)
+        stale_generation = timer._generation
+        timer.start(10.0)
+
+        timer._on_done(stale_generation)
+
+        assert timer.is_moving()
+        timer.cancel()

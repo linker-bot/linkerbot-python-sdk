@@ -1,0 +1,210 @@
+"""CANFD message types and DLC conversion helpers."""
+
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
+
+from linkerbot.exceptions import ValidationError
+
+CANFD_MAX_DATA_LENGTH = 64
+CANFD_MAX_DLC = 15
+CANFD_STANDARD_ID_MASK = 0x7FF
+CANFD_EXTENDED_ID_MASK = 0x1FFFFFFF
+CANFD_DEFAULT_NOMINAL_BAUD = 1_000_000
+CANFD_DEFAULT_DATA_BAUD = 5_000_000
+CANFD_DEFAULT_CONFIG_FLAGS = 0x01 | 0x02 | 0x04
+CANFD_DEFAULT_MODEL = 0
+CANFD_DEFAULT_CAN_TYPE = 1
+CANFD_DEFAULT_FRAME_TYPE = 0x04
+_BYTE_MAX = 0xFF
+_UINT32_MAX = 0xFFFFFFFF
+
+_DLC_TO_LENGTH = {
+    0: 0,
+    1: 1,
+    2: 2,
+    3: 3,
+    4: 4,
+    5: 5,
+    6: 6,
+    7: 7,
+    8: 8,
+    9: 12,
+    10: 16,
+    11: 20,
+    12: 24,
+    13: 32,
+    14: 48,
+    15: 64,
+}
+
+
+def dlc_to_length(dlc: int) -> int:
+    """Return the CANFD wire payload capacity for a DLC value."""
+    dlc = _require_int(dlc, "dlc")
+    if dlc not in _DLC_TO_LENGTH:
+        raise ValidationError(f"dlc must be between 0 and {CANFD_MAX_DLC}")
+    return _DLC_TO_LENGTH[dlc]
+
+
+def length_to_dlc(length: int) -> int:
+    """Return the smallest CANFD DLC capable of carrying length bytes."""
+    length = _require_int(length, "length")
+    if length < 0 or length > CANFD_MAX_DATA_LENGTH:
+        raise ValidationError(
+            f"CANFD payload length must be between 0 and {CANFD_MAX_DATA_LENGTH} bytes"
+        )
+    for dlc, capacity in _DLC_TO_LENGTH.items():
+        if length <= capacity:
+            return dlc
+    raise ValidationError(
+        f"CANFD payload length must be between 0 and {CANFD_MAX_DATA_LENGTH} bytes"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CANFDConfigOptions:
+    """Configuration used when initializing the vendor CANFD adapter."""
+
+    nom_baud: int = CANFD_DEFAULT_NOMINAL_BAUD
+    dat_baud: int = CANFD_DEFAULT_DATA_BAUD
+    config: int = CANFD_DEFAULT_CONFIG_FLAGS
+    model: int = CANFD_DEFAULT_MODEL
+    cantype: int = CANFD_DEFAULT_CAN_TYPE
+    frame_type: int = CANFD_DEFAULT_FRAME_TYPE
+
+    def __post_init__(self) -> None:
+        _validate_positive_uint32(self.nom_baud, "nom_baud")
+        _validate_positive_uint32(self.dat_baud, "dat_baud")
+        _validate_byte(self.config, "config")
+        _validate_byte(self.model, "model")
+        _validate_byte(self.cantype, "cantype")
+        _validate_byte(self.frame_type, "frame_type")
+
+
+@dataclass(frozen=True, slots=True)
+class CANFDMessage:
+    """Immutable CANFD message used by the SDK's CANFD dispatcher."""
+
+    arbitration_id: int
+    data: bytes
+    dlc: int | None = None
+    is_extended_id: bool = True
+    frame_type: int | None = None
+    timestamp: int | None = None
+
+    def __post_init__(self) -> None:
+        data = _normalize_data(self.data)
+        if len(data) > CANFD_MAX_DATA_LENGTH:
+            raise ValidationError(
+                f"CANFD payload length must be between 0 and {CANFD_MAX_DATA_LENGTH} bytes"
+            )
+
+        if not isinstance(self.is_extended_id, bool):
+            raise ValidationError("is_extended_id must be bool")
+        if self.is_extended_id:
+            _validate_id(self.arbitration_id, CANFD_EXTENDED_ID_MASK, "extended")
+        else:
+            _validate_id(self.arbitration_id, CANFD_STANDARD_ID_MASK, "standard")
+
+        dlc = length_to_dlc(len(data)) if self.dlc is None else self.dlc
+        dlc = _require_int(dlc, "dlc")
+        if dlc < 0 or dlc > CANFD_MAX_DLC:
+            raise ValidationError(f"dlc must be between 0 and {CANFD_MAX_DLC}")
+        if len(data) > dlc_to_length(dlc):
+            raise ValidationError("payload length exceeds explicit DLC capacity")
+
+        if self.frame_type is not None:
+            _validate_byte(self.frame_type, "frame_type")
+        if self.timestamp is not None:
+            timestamp = _require_int(self.timestamp, "timestamp")
+            if timestamp < 0:
+                raise ValidationError("timestamp must be non-negative")
+
+        object.__setattr__(self, "data", data)
+        object.__setattr__(self, "dlc", dlc)
+
+    @classmethod
+    def from_bytes(
+        cls,
+        *,
+        arbitration_id: int,
+        data: bytes | bytearray | memoryview,
+        dlc: int | None = None,
+        is_extended_id: bool = True,
+        frame_type: int | None = None,
+        timestamp: int | None = None,
+    ) -> "CANFDMessage":
+        """Create a CANFD message from any bytes-like payload."""
+        return cls(
+            arbitration_id=arbitration_id,
+            data=_normalize_data(data),
+            dlc=dlc,
+            is_extended_id=is_extended_id,
+            frame_type=frame_type,
+            timestamp=timestamp,
+        )
+
+
+def _normalize_data(data: object) -> bytes:
+    if not isinstance(data, (bytes, bytearray, memoryview)):
+        raise ValidationError("data must be bytes-like")
+    try:
+        return bytes(data)
+    except (TypeError, ValueError) as error:
+        raise ValidationError(f"invalid bytes-like data: {error}") from error
+
+
+def _require_int(value: object, name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValidationError(f"{name} must be int")
+    return value
+
+
+def _validate_positive_uint32(value: object, name: str) -> None:
+    normalized = _require_int(value, name)
+    if normalized <= 0 or normalized > _UINT32_MAX:
+        raise ValidationError(f"{name} must be between 1 and {_UINT32_MAX}")
+
+
+def _validate_id(arbitration_id: object, max_value: int, name: str) -> None:
+    normalized = _require_int(arbitration_id, "arbitration_id")
+    if normalized < 0 or normalized > max_value:
+        raise ValidationError(f"{name} arbitration_id must fit in 0x{max_value:X}")
+
+
+def _validate_byte(value: object, name: str) -> None:
+    normalized = _require_int(value, name)
+    if normalized < 0 or normalized > _BYTE_MAX:
+        raise ValidationError(f"{name} must fit in one byte")
+
+
+@runtime_checkable
+class CANFDBackend(Protocol):
+    """Minimal device interface required by ``CANFDMessageDispatcher``.
+
+    The dispatcher does not care which library actually moves bytes on the
+    wire; it just needs something that can send a frame, receive a batch of
+    frames, and clean up. Concrete implementations in this package:
+
+    - ``CANFDInterface`` (``ctypes_backend.py``) — vendor ``libcanbus.so`` /
+      ``HCanbus.dll``, the original backend used by L30 and O20.
+    - ``SocketCANFDBackend`` (``socketcan_backend.py``) — Linux SocketCAN in
+      CAN FD mode via python-can.
+
+    Tests can pass a hand-rolled fake satisfying this protocol; isinstance
+    checks work because the protocol is ``@runtime_checkable``.
+    """
+
+    def send(self, message: "CANFDMessage", timeout_ms: int = 10) -> None:
+        """Transmit a single frame, blocking up to ``timeout_ms``."""
+        ...
+
+    def receive(
+        self, max_frames: int = 64, timeout_ms: int = 10
+    ) -> list["CANFDMessage"]:
+        """Receive up to ``max_frames`` frames, returning empty on timeout."""
+        ...
+
+    def close(self) -> None:
+        """Release the underlying device. Idempotent."""
+        ...

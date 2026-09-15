@@ -8,14 +8,35 @@ degrees of freedom split across five CAN frames (0x41-0x45), one per finger.
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import can
 
-from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import ValidationError
-from linkerbot.relay import DataRelay
+from linkerbot.hand._can_protocol import CANDispatcherLike
+from linkerbot.hand._polling_relay import PollingDataRelay
+from linkerbot.hand.angle_mapping import AngleMappingManager, validate_raw_values
 
 _JOINT_COUNT = 16
+_MODEL_NAME = "l25"
+_JOINT_NAMES = [
+    "thumb_abd",
+    "thumb_yaw",
+    "thumb_root1",
+    "thumb_tip",
+    "index_abd",
+    "index_root1",
+    "index_tip",
+    "middle_abd",
+    "middle_root1",
+    "middle_tip",
+    "ring_abd",
+    "ring_root1",
+    "ring_tip",
+    "pinky_abd",
+    "pinky_root1",
+    "pinky_tip",
+]
 
 
 @dataclass
@@ -185,20 +206,35 @@ class AngleManager:
         0x45: ["pinky_abd", None, "pinky_root1", None, None, "pinky_tip"],
     }
 
-    def __init__(self, arbitration_id: int, dispatcher: CANMessageDispatcher) -> None:
+    def __init__(
+        self,
+        arbitration_id: int,
+        dispatcher: CANDispatcherLike,
+        angle_mapping_path: str | Path | None = None,
+        side: str | None = None,
+        interface_name: str | None = None,
+    ) -> None:
         """Initialize the angle manager.
 
         Args:
             arbitration_id: CAN arbitration ID for angle control/sensing.
             dispatcher: CAN message dispatcher to use for communication.
+            angle_mapping_path: Optional TOML path for angle mapping persistence.
+            side: Optional hand side for mapping namespace.
+            interface_name: Optional CAN interface for mapping namespace.
         """
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-        self._relay = DataRelay[AngleData]()
         self._pending: dict[int, list[float]] = {}
-        self._in_flight = False
-        self._in_flight_since: float = 0
+        self._relay = PollingDataRelay[AngleData](self._pending.clear)
+        self._angle_mapping = AngleMappingManager(
+            model=_MODEL_NAME,
+            joint_names=_JOINT_NAMES,
+            mapping_path=angle_mapping_path,
+            side=side,
+            interface_name=interface_name,
+        )
 
     def set_angles(self, angles: L25Angle | list[float]) -> None:
         """Send target angles to the robotic hand.
@@ -219,11 +255,38 @@ class AngleManager:
         if not isinstance(angles, L25Angle):
             angles = L25Angle.from_list(angles)
 
+        raw_angles = [round(value * 255 / 100) for value in angles.to_list()]
+        self._send_raw_angles(raw_angles)
+
+    def set_raw_angles(self, raw_angles: list[int]) -> None:
+        """Send standard raw target angles to the robotic hand.
+
+        Args:
+            raw_angles: List of 16 standard raw angle values in 0-255 range.
+        """
+        self._send_raw_angles(validate_raw_values(raw_angles, _JOINT_COUNT))
+
+    def get_angle_mapping(self) -> list[list[int]]:
+        """Get the current standard-to-hardware raw angle mapping."""
+        return self._angle_mapping.get_mapping()
+
+    def get_default_angle_mapping(self) -> list[list[int]]:
+        """Get the default linear raw angle mapping."""
+        return self._angle_mapping.get_default_mapping()
+
+    def set_angle_mapping(self, mapping: list[list[int]]) -> None:
+        """Replace the standard-to-hardware raw angle mapping."""
+        self._angle_mapping.set_mapping(mapping)
+
+    def reset_angle_mapping(self) -> None:
+        """Restore the default linear raw angle mapping."""
+        self._angle_mapping.reset_mapping()
+
+    def _send_raw_angles(self, raw_angles: list[int]) -> None:
+        mapped_angles = self._angle_mapping.map_values(raw_angles)
+        raw_by_field = dict(zip(_JOINT_NAMES, mapped_angles, strict=True))
         for cmd, fields in self._FRAME_MAP.items():
-            data = [cmd] + [
-                round(getattr(angles, f) * 255 / 100) if f is not None else 0x00
-                for f in fields
-            ]
+            data = [cmd] + [raw_by_field[f] if f is not None else 0x00 for f in fields]
             msg = can.Message(
                 arbitration_id=self._arbitration_id,
                 data=data,
@@ -254,10 +317,7 @@ class AngleManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-        self._pending.clear()
-        self._in_flight = False
-        self._send_sense_request()
-        return self._relay.wait(timeout_ms / 1000.0)
+        return self._relay.request(self._send_request_frames, timeout_ms / 1000.0)
 
     def get_snapshot(self) -> AngleData | None:
         """Get the most recent cached angle data (non-blocking).
@@ -275,17 +335,13 @@ class AngleManager:
     def _set_event_sink(self, sink: Callable[[AngleData], None]) -> None:
         self._relay.set_sink(sink)
 
-    _IN_FLIGHT_TIMEOUT_S = 0.2
-
     def _send_sense_request(self) -> None:
-        if (
-            self._in_flight
-            and (time.monotonic() - self._in_flight_since) < self._IN_FLIGHT_TIMEOUT_S
-        ):
-            return
-        self._in_flight = True
-        self._in_flight_since = time.monotonic()
-        self._pending.clear()
+        self._relay.poll(self._send_request_frames)
+
+    def _cancel_sense_request(self) -> None:
+        self._relay.cancel_polling()
+
+    def _send_request_frames(self) -> None:
         for cmd in self._FRAME_MAP:
             msg = can.Message(
                 arbitration_id=self._arbitration_id,
@@ -322,12 +378,10 @@ class AngleManager:
         # All frames received -- merge into L25Angle
         kwargs: dict[str, float] = {}
         for frame_cmd, fields in self._FRAME_MAP.items():
-            for field, value in zip(fields, self._pending[frame_cmd]):
+            for field, value in zip(fields, self._pending[frame_cmd], strict=True):
                 if field is not None:
                     kwargs[field] = value
 
         angles = L25Angle(**kwargs)
         angle_data = AngleData(angles=angles, timestamp=time.time())
-        self._in_flight = False
-        self._pending.clear()
         self._relay.push(angle_data)

@@ -1,5 +1,10 @@
 # 运动控制
 
+> **PP 模式**：本节的 `home` / `move_j` / `move_p` / `move_l` 均依赖 Profile Position。
+> MIT / 运控模式请使用 `set_control_mode(ControlMode.MIT)` + 周期调用 `set_mits(...)`；
+> CSP 模式请使用 `set_control_mode(ControlMode.CSP)` + `set_limit_spds` + 周期调用 `set_csp_angles(...)`。
+> 详见 [README 控制模式](README.md#控制模式)。
+
 ## 回零
 
 将所有关节移动到零位（`[0.0] * 7`）。

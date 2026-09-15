@@ -58,6 +58,42 @@ with L6(side="left", interface_name="can0") as hand:
 | `ring`       | 无名指   |
 | `pinky`      | 小指     |
 
+## 角度表示与映射
+
+手部 `hand.angle` 支持两种控制输入：
+
+- `set_angles()`：使用 0-100 的标准百分比角度，保持兼容旧接口。
+- `set_raw_angles()`：使用 0-255 的标准 raw 角度，跳过百分比换算。
+
+无论使用哪种设置接口，SDK 在发送前都会查询内存中的角度映射表，把“标准 raw 值”转换为“硬件 raw 值”。默认映射是线性直通：`mapping[joint][i] = i`。
+
+映射表形状为 `n x 256`，其中 `n` 是手型号自由度数量：
+
+| 型号    | 自由度 | 映射表形状 |
+| ------- | ------ | ---------- |
+| L6      | 6      | `6 x 256`  |
+| O6      | 6      | `6 x 256`  |
+| L20Lite | 10     | `10 x 256` |
+| L25     | 16     | `16 x 256` |
+
+映射表默认保存到 `~/.config/linkerbot/hand_angle_mappings.toml`，并按手型号、左右手和 CAN 接口分别保存，例如 `l6:left:can0`。如果需要按项目或设备指定独立配置文件，可以在构造手对象时传入 `angle_mapping_path`。
+
+```python
+from linkerbot import L6
+
+with L6(side="left", interface_name="can0") as hand:
+    # 标准 raw 角度输入，范围 0-255
+    hand.angle.set_raw_angles([128, 96, 160, 160, 160, 160])
+
+    # 查询并替换完整映射表
+    mapping = hand.angle.get_angle_mapping()
+    mapping[0] = list(reversed(range(256)))
+    hand.angle.set_angle_mapping(mapping)
+
+    # 恢复默认线性映射
+    hand.angle.reset_angle_mapping()
+```
+
 ## 数据读取模式
 
 ### 阻塞读取

@@ -31,7 +31,7 @@ with A7lite(
 **前置依赖：** A7 Lite 依赖 Pinocchio 进行运动学计算，需要安装 `kinetix` 可选依赖：
 
 ```bash
-pip install linkerbot-py[kinetix]
+pip install linkerbot[kinetix]
 ```
 
 > **Windows 用户**：Pinocchio 不支持 pip 安装，请使用 `conda install pinocchio -c conda-forge`。
@@ -164,13 +164,69 @@ pose = Pose(x=0.3, y=0.1, z=0.5, rx=0.0, ry=0.5, rz=0.0)
 
 ## 控制模式
 
-当前仅支持 PP（Profile Position）模式，调用 `enable()` 时会自动设置。
+A7 Lite 支持三种控制模式（RS00 私有协议 `run_mode` / `0x7005`）：
 
-`ControlMode` 枚举可从 `linkerbot` 导入：
+| 模式 | `ControlMode` | `run_mode` | 说明 |
+| ---- | ------------- | ---------- | ---- |
+| Profile Position | `PP` | `1` | 默认。`move_j` / `move_p` / `move_l` / `home` 使用此模式 |
+| 运控（MIT 控制律） | `MIT` | `0` | 主机周期下发 `(p, v, kp, kd, t_ff)`，见下方 |
+| Cyclic Sync Position | `CSP` | `5` | 主机周期写 `loc_ref`，用 `limit_spd` 限速，见下方 |
+
+> **注意**：此处的 `MIT` 是私有协议下的**运控模式**，不是说明书中需切协议、改用标准帧的「MIT 协议」（通信类型 25）。SDK 不切换私有协议。
+
+`ControlMode` 可从 `linkerbot` 导入：
 
 ```python
 from linkerbot import ControlMode
 ```
+
+调用 `enable()` 时会按已设置的模式写入 `run_mode`（未设置则默认 `PP`）。切换模式时 SDK 会先对所有关节发送停机（Type4），符合手册「运行中不可切换控制方式」的要求；切换后需再次 `enable()`。
+
+### MIT / 运控模式用法
+
+```python
+from linkerbot import A7lite, ControlMode
+
+with A7lite(side="left", interface_name="can0") as arm:
+    arm.set_control_mode(ControlMode.MIT)
+    arm.enable()
+
+    q = arm.get_angles()
+    # 以 ≥100 Hz 周期调用；丢帧会导致力矩指令中断
+    arm.set_mits(
+        positions=q,
+        velocities=[0.0] * 7,
+        kps=[20.0] * 7,   # [0, 500]
+        kds=[1.0] * 7,    # [0, 5]
+        torques=[0.0] * 7,  # [-14, 14] N·m
+    )
+```
+
+- `set_mits(...)`：向 7 个关节各发一帧通信类型 1。
+- MIT 模式下不要调用 `move_j` / `_set_angles` / `set_csp_angles`（会抛 `StateError`）；PP / CSP 模式下不要调用 `set_mits`。
+- 帧内 `kp`/`kd` 与 PP/CSP 的 `set_position_kps` / `set_velocity_kps`（寄存器 `0x701E` 等）不是同一套参数。
+- 控制律：`t_ref = kd*(v_des-v) + kp*(p_des-p) + t_ff`。
+
+### CSP 模式用法
+
+```python
+from linkerbot import A7lite, ControlMode
+
+with A7lite(side="left", interface_name="can0") as arm:
+    arm.set_control_mode(ControlMode.CSP)
+    arm.enable()
+    arm.set_limit_spds([2.0] * 7)       # 0x7017，范围 [0, 33] rad/s
+    arm.set_position_kps([25.0] * 7)    # 可选，位置环刚度
+
+    q = arm.get_angles()
+    # 以 ≥100 Hz 周期调用
+    arm.set_csp_angles(q)
+```
+
+- `set_limit_spds`：CSP 速度上限（不是 PP 的 `set_velocities` / `0x7024`）。
+- `set_csp_angles`：写 `loc_ref`（`0x7016`）；要求当前为 `ControlMode.CSP`。
+- CSP 下驱动不做 PP 梯形规划；跟踪质量取决于上位机发点频率与平滑度。
+- `emergency_stop()` 按各关节当前模式分别停机：PP 将 `vel_max`（`0x7024`）置 0；CSP 将 `limit_spd`（`0x7017`）置 0；MIT 发 Type1 当前位置保持（`v=0`，`t_ff=0`）。混合模式（如前三 MIT、后四 PP）不会误用单一寄存器。
 
 ## CAN 总线
 

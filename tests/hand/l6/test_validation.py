@@ -38,7 +38,9 @@ class TestL6Angle:
 
     def test_from_list_non_numeric(self):
         with pytest.raises(ValueError, match="must be float/int"):
-            L6Angle.from_list(["a"] + [50.0] * 5)
+            L6Angle.from_list(
+                ["a"] + [50.0] * 5  # ty: ignore[invalid-argument-type]
+            )
 
     def test_round_trip(self):
         angle = L6Angle.from_list(VALID_VALUES)
@@ -84,7 +86,9 @@ class TestL6Speed:
 
     def test_from_list_non_numeric(self):
         with pytest.raises(ValueError, match="must be float/int"):
-            L6Speed.from_list(["a"] + [50.0] * 5)
+            L6Speed.from_list(
+                ["a"] + [50.0] * 5  # ty: ignore[invalid-argument-type]
+            )
 
     def test_round_trip(self):
         speed = L6Speed.from_list(VALID_VALUES)
@@ -119,7 +123,9 @@ class TestL6Torque:
 
     def test_from_list_non_numeric(self):
         with pytest.raises(ValueError, match="must be float/int"):
-            L6Torque.from_list(["a"] + [50.0] * 5)
+            L6Torque.from_list(
+                ["a"] + [50.0] * 5  # ty: ignore[invalid-argument-type]
+            )
 
     def test_round_trip(self):
         torque = L6Torque.from_list(VALID_VALUES)

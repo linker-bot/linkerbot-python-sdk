@@ -256,8 +256,7 @@ class TorqueManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-        self._send_sense_request()
-        return self._relay.wait(timeout_ms / 1000.0)
+        return self._relay.request(self._send_sense_request, timeout_ms / 1000.0)
 
     def get_snapshot(self) -> TorqueData | None:
         """Get the most recent cached torque data (non-blocking).

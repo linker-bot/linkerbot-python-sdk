@@ -1,0 +1,71 @@
+name: Changelog
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Require changelog for SDK changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -eu
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base_sha="$PR_BASE_SHA"
+            diff_separator="..."
+          else
+            base_sha="$PUSH_BEFORE_SHA"
+            diff_separator=".."
+          fi
+
+          case "$base_sha" in
+            ""|0000000000000000000000000000000000000000)
+              base_sha="$(git rev-parse HEAD^)"
+              ;;
+          esac
+
+          comparison="${base_sha}${diff_separator}HEAD"
+          changed_files="$(git diff --name-only "$comparison")"
+
+          if ! printf '%s\n' "$changed_files" | grep -Eq '^(src/|pyproject\.toml$)'; then
+            echo "No SDK or package metadata changes require a changelog entry."
+            exit 0
+          fi
+
+          if ! printf '%s\n' "$changed_files" | grep -qx 'CHANGELOG.md'; then
+            echo "::error::Changes under src/ or in pyproject.toml require an Unreleased entry in CHANGELOG.md."
+            exit 1
+          fi
+
+          extract_unreleased() {
+            awk '
+              $0 == "## [Unreleased]" { in_unreleased = 1; next }
+              in_unreleased && /^## \[/ { exit }
+              in_unreleased { print }
+            '
+          }
+
+          base_unreleased="$(git show "$base_sha:CHANGELOG.md" 2>/dev/null | extract_unreleased || true)"
+          head_unreleased="$(extract_unreleased < CHANGELOG.md)"
+
+          if [ "$base_unreleased" = "$head_unreleased" ]; then
+            echo "::error::CHANGELOG.md changed, but its Unreleased section did not."
+            exit 1
+          fi
+
+          echo "CHANGELOG.md contains an updated Unreleased section."

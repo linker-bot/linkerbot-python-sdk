@@ -15,3 +15,23 @@ MOVE_L_MAX_ACCELERATION = 1.0
 MOVE_L_DEFAULT_ACCELERATION = 0.1
 MOVE_L_MAX_ANGULAR_ACCELERATION = 1.0
 MOVE_L_DEFAULT_ANGULAR_ACCELERATION = 0.1
+
+# RS00 private-protocol MIT / 运控 mode packing ranges (comm type 1)
+MIT_P_MIN = -12.57
+MIT_P_MAX = 12.57
+MIT_V_MIN = -33.0
+MIT_V_MAX = 33.0
+MIT_KP_MIN = 0.0
+MIT_KP_MAX = 500.0
+MIT_KD_MIN = 0.0
+MIT_KD_MAX = 5.0
+MIT_T_MIN = -14.0
+MIT_T_MAX = 14.0
+# Fallback stiffness when emergency-stopping an MIT joint that has not
+# yet received a Type1 command (matches the documented MIT example).
+MIT_HOLD_KP = 20.0
+MIT_HOLD_KD = 1.0
+
+# RS00 CSP (run_mode=5) velocity limit register 0x7017
+CSP_LIMIT_SPD_MIN = 0.0
+CSP_LIMIT_SPD_MAX = 33.0

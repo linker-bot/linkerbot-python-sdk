@@ -16,11 +16,12 @@ with L20lite(side="left", interface_name="can0") as hand:
 
 **构造参数**
 
-| 参数             | 类型                  | 说明                                                                          |
-| ---------------- | --------------------- | ----------------------------------------------------------------------------- |
-| `side`           | `"left"` \| `"right"` | 左手或右手                                                                    |
-| `interface_name` | `str`                 | CAN 接口名，如 `"can0"`                                                       |
-| `interface_type` | `str`                 | CAN 接口类型，默认 `"socketcan"`。Windows 用法参考 [CAN 总线](../can.md) 文档 |
+| 参数                 | 类型                  | 说明                                                                                |
+| -------------------- | --------------------- | ----------------------------------------------------------------------------------- |
+| `side`               | `"left"` \| `"right"` | 左手或右手                                                                          |
+| `interface_name`     | `str`                 | CAN 接口名，如 `"can0"`                                                             |
+| `interface_type`     | `str`                 | CAN 接口类型，默认 `"socketcan"`。Windows 用法参考 [CAN 总线](../can.md) 文档       |
+| `angle_mapping_path` | `str \| Path \| None` | 角度映射 TOML 持久化路径；不传时使用 `~/.config/linkerbot/hand_angle_mappings.toml` |
 
 ## 关节说明
 

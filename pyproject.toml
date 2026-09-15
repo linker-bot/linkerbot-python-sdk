@@ -7,21 +7,23 @@ authors = [{ name = "Jason Yip", email = "yezi.2022@outlook.com" }]
 requires-python = ">=3.10"
 dependencies = [
   "numpy>=2.2.6",
-  "pydantic>=2.12.5",
+  "pydantic>=2.13.4",
   "python-can>=4.6.1",
   "scipy>=1.15.3",
+  "tomli>=2.4.1; python_version < '3.11'",
+  "tomli-w>=1.0.0",
 ]
 
 [project.optional-dependencies]
-kinetix = ["pin>=3.9.0"]
+kinetix = ["pin>=4.1.0"]
 
 [build-system]
-requires = ["uv_build>=0.9.8,<0.12.0"]
+requires = ["uv_build>=0.11.28,<0.12.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-dev = ["matplotlib>=3.10.8", "ruff>=0.15.0", "ty>=0.0.15", "uv-bump>=0.4.1"]
-test = ["pytest>=9.0.2", "pytest-timeout>=2.4.0"]
+dev = ["matplotlib>=3.10.9", "ruff>=0.15.21", "ty>=0.0.58", "uv-bump>=0.5.0"]
+test = ["pytest>=9.1.1", "pytest-timeout>=2.4.0"]
 
 [tool.uv.build-backend]
 module-name = "linkerbot"
@@ -40,12 +42,20 @@ markers = [
   "l20lite: Tests for L20Lite robotic hand",
   "l25: Tests for L25 robotic hand",
   "o6: Tests for O6 robotic hand",
+  "l30: Tests for L30 robotic hand",
+  "o20: Tests for O20 robotic hand",
+  "o30i: Tests for O30i robotic hand and HandProtocol_v1.0",
+  "canfd: Tests for CANFD communication",
+  "hardware: Tests requiring physical hardware",
   "slow: Tests that take longer to run",
   "lifecycle: Connection and lifecycle tests",
   "control: Angle, speed, and torque control tests",
   "sensor: Temperature, current, fault, and force sensor tests",
   "polling: Background polling tests",
   "streaming: Event streaming tests",
+  "stress: Timing and concurrency stress tests",
+  "validation: Input and configuration validation tests",
+  "error_handling: Error propagation and recovery tests",
   "a7_lite: Tests for A7lite robotic arm",
   "a7: Tests for A7 robotic arm",
   "basic: Basic functionality tests",
@@ -53,7 +63,7 @@ markers = [
   "motion: Motion control tests",
   "extra: Extra tests (explicit invocation only)",
 ]
-addopts = ["-v", "--strict-markers", "-m", "not interactive"]
+addopts = ["-v", "--strict-markers", "-m", "not hardware and not interactive"]
 
 [tool.ty.analysis]
 replace-imports-with-any = ["pinocchio.**"]

@@ -9,6 +9,7 @@ import queue
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Literal
 
 from linkerbot.comm import CanInterface, CANMessageDispatcher
@@ -95,6 +96,7 @@ class L20lite:
         side: Literal["left", "right"],
         interface_name: str,
         interface_type: str = "socketcan",
+        angle_mapping_path: str | Path | None = None,
     ) -> None:
         """Initialize the L20lite robotic hand interface.
 
@@ -102,6 +104,7 @@ class L20lite:
             side: Side of the hand (left or right, default: left).
             interface_name: Name of the CAN interface (e.g., 'can0', 'vcan0').
             interface_type: Type of CAN interface backend (default: 'socketcan').
+            angle_mapping_path: Optional TOML path for angle mapping persistence.
         """
         # Create CAN message dispatcher
         self._bus_error: Exception | None = None
@@ -117,7 +120,11 @@ class L20lite:
 
         # Create subsystem managers
         self.angle = AngleManager(
-            arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
+            arbitration_id=self._arbitration_id,
+            dispatcher=self._dispatcher,
+            angle_mapping_path=angle_mapping_path,
+            side=side,
+            interface_name=interface_name,
         )
         self.force_sensor = ForceSensorManager(
             arbitration_id=self._arbitration_id, dispatcher=self._dispatcher
@@ -154,6 +161,13 @@ class L20lite:
             "torque": self.torque._send_sense_request,
             "temperature": self.temperature._send_sense_request,
             "force_sensor": self.force_sensor._send_sense_request,
+        }
+        self._polling_cancellers: dict[str, Callable[[], None]] = {
+            "angle": self.angle._cancel_sense_request,
+            "speed": self.speed._cancel_sense_request,
+            "torque": self.torque._cancel_sense_request,
+            "temperature": self.temperature._cancel_sense_request,
+            "force_sensor": self.force_sensor._cancel_sense_request,
         }
 
         # Register event sinks
@@ -341,9 +355,12 @@ class L20lite:
 
     def _polling_loop(self, source_name: str, interval: float) -> None:
         sender = self._polling_senders[source_name]
-        while not self._stop_polling.is_set():
-            sender()
-            self._stop_polling.wait(interval)
+        try:
+            while not self._stop_polling.is_set():
+                sender()
+                self._stop_polling.wait(interval)
+        finally:
+            self._polling_cancellers[source_name]()
 
     def _push_event(self, event: SensorEvent) -> None:
         q = self._unified_queue

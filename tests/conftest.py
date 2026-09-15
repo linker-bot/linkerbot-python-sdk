@@ -2,13 +2,24 @@
 
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolate_hand_config(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[Path]:
+    """Keep every test scope out of the user's persistent configuration."""
+    config_root = tmp_path_factory.mktemp("linkerbot-hand-config")
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_root))
+        yield config_root
 
 
 @dataclass

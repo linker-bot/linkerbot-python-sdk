@@ -26,6 +26,33 @@ angles = O6Angle(
 hand.angle.set_angles(angles)
 ```
 
+## 原始角度与映射
+
+除了 0-100 的百分比角度，`hand.angle` 还支持直接设置标准 raw 角度：
+
+```python
+# 6 个关节，标准 raw 范围为 0-255
+hand.angle.set_raw_angles([128, 96, 160, 160, 160, 160])
+```
+
+SDK 发送控制帧前会将“标准 raw 值”通过角度映射表转换为“硬件 raw 值”。默认映射是线性直通：`0 -> 0`，`255 -> 255`。
+
+O6 的映射表形状为 `6 x 256`：
+
+- 行：关节索引，顺序与 [关节说明](./README.md#关节说明) 一致。
+- 列：标准 raw 输入值 `0-255`。
+- 值：实际发送给硬件的 raw 值 `0-255`。
+
+```python
+mapping = hand.angle.get_angle_mapping()
+mapping[0] = list(reversed(range(256)))
+hand.angle.set_angle_mapping(mapping)
+
+hand.angle.reset_angle_mapping()
+```
+
+映射表默认保存到 `~/.config/linkerbot/hand_angle_mappings.toml`。保存时会按手型号、左右手和 CAN 接口区分，例如 `o6:left:can0`。也可以在构造手对象时通过 `angle_mapping_path` 指定 TOML 路径。
+
 ## 读取角度
 
 ### 阻塞读取

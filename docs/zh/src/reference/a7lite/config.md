@@ -17,10 +17,13 @@ with A7lite(side="left", interface_name="can0") as arm:
 
 | 方法                               | 参数                           | 范围        | 说明      |
 | ---------------------------------- | ------------------------------ | ----------- | --------- |
-| `set_velocities(velocities)`       | 7 个关节的速度上限（rad/s）    | [0.0, 50.0] | 默认 0.5  |
-| `set_accelerations(accelerations)` | 7 个关节的加速度上限（rad/s²） | [1.0, 50.0] | 默认 10.0 |
+| `set_velocities(velocities)`       | 7 个关节的速度上限（rad/s）    | [0.0, 50.0] | PP：`vel_max`（`0x7024`），默认 0.5 |
+| `set_accelerations(accelerations)` | 7 个关节的加速度上限（rad/s²） | [1.0, 50.0] | PP：`acc_set`（`0x7025`），默认 10.0 |
+| `set_limit_spds(limit_spds)`       | 7 个关节 CSP 速度上限（rad/s） | [0.0, 33.0] | CSP：`limit_spd`（`0x7017`） |
 
 **异常**：`ValidationError`（必须提供恰好 7 个值，或值超出范围时）
+
+> CSP 模式下请用 `set_limit_spds`，不要依赖 `set_velocities`（后者写的是 PP 的 `vel_max`）。
 
 ## PID 参数设置
 

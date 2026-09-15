@@ -8,10 +8,24 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 from linkerbot.arm.a7_lite.consts import (
+    CSP_LIMIT_SPD_MAX,
+    CSP_LIMIT_SPD_MIN,
     MAX_ACCELERATION,
     MAX_VELOCITY,
     MIN_ACCELERATION,
     MIN_VELOCITY,
+    MIT_HOLD_KD,
+    MIT_HOLD_KP,
+    MIT_KD_MAX,
+    MIT_KD_MIN,
+    MIT_KP_MAX,
+    MIT_KP_MIN,
+    MIT_P_MAX,
+    MIT_P_MIN,
+    MIT_T_MAX,
+    MIT_T_MIN,
+    MIT_V_MAX,
+    MIT_V_MIN,
     MOVE_L_DEFAULT_ACCELERATION,
     MOVE_L_DEFAULT_ANGULAR_ACCELERATION,
     MOVE_L_DEFAULT_MAX_ANGULAR_VELOCITY,
@@ -66,7 +80,8 @@ class A7lite:
         self._kx: ArmKinetix = ArmKinetix.from_builtin(
             "a7_lite", side, tcp_offset=tcp_offset, world_frame=world_frame
         )
-        self._control_mode: ControlMode | None = None
+        # Per-joint run_mode; None means "not set yet" (enable defaults to all PP).
+        self._control_modes: list[ControlMode] | None = None
         self._motion_timer = MotionTimer()
         self._closed: bool = False
         self._check_motors()
@@ -74,6 +89,26 @@ class A7lite:
             motor.start_reporting()
             motor.read_initial_state()
         self._wait_reporting_data()
+
+    @property
+    def control_modes(self) -> list[ControlMode] | None:
+        """Per-joint control modes, or ``None`` if not configured yet."""
+        if self._control_modes is None:
+            return None
+        return list(self._control_modes)
+
+    def _modes_or_pp(self) -> list[ControlMode]:
+        if self._control_modes is None:
+            return [ControlMode.PP] * len(self._motors)
+        return list(self._control_modes)
+
+    def _all_modes_are(self, mode: ControlMode) -> bool:
+        modes = self._control_modes
+        return modes is not None and all(m == mode for m in modes)
+
+    def _any_mode_is(self, mode: ControlMode) -> bool:
+        modes = self._control_modes
+        return modes is not None and any(m == mode for m in modes)
 
     def _wait_reporting_data(self, timeout_s: float = 1.0) -> None:
         """Wait for all motors to receive reporting data.
@@ -128,16 +163,39 @@ class A7lite:
         self._motion_timer.wait_done()
 
     def set_control_mode(self, mode: ControlMode) -> None:
+        """Set all joints to the same ``run_mode`` (RS00 ``0x7005``).
+
+        Per RS00 manual, control mode must not be switched while motors are
+        running: this method sends stop (Type4) on every joint before writing
+        the new mode. Call :meth:`enable` afterwards to re-enter Motor mode.
+        """
+        self.set_control_modes([mode] * len(self._motors))
+
+    def set_control_modes(self, modes: list[ControlMode]) -> None:
+        """Set per-joint ``run_mode`` (RS00 ``0x7005``).
+
+        Allows mixing ``PP`` / ``MIT`` / ``CSP`` across joints. Stops every
+        joint before writing modes. Call :meth:`enable` afterwards.
+        """
+        n = len(self._motors)
+        if len(modes) != n:
+            raise ValueError(f"modes count must be {n}, got {len(modes)}")
+        for i, mode in enumerate(modes):
+            if mode not in (ControlMode.PP, ControlMode.MIT, ControlMode.CSP):
+                raise ValidationError(
+                    "A7lite only supports ControlMode.PP, ControlMode.MIT, "
+                    f"and ControlMode.CSP, got joint {i}={mode!r}"
+                )
+        # Stop before switching (RS00: 运行时不可切换控制方式)
         for motor in self._motors:
+            motor.disable()
+        for motor, mode in zip(self._motors, modes):
             motor.set_control_mode(mode)
-        self._control_mode = mode
+        self._control_modes = list(modes)
 
     def enable(self) -> None:
         self.reset_error()
-        control_mode = (
-            self._control_mode if self._control_mode is not None else ControlMode.PP
-        )
-        self.set_control_mode(control_mode)
+        self.set_control_modes(self._modes_or_pp())
         for motor in self._motors:
             motor.enable()
 
@@ -154,12 +212,54 @@ class A7lite:
             motor.reset_error()
 
     def emergency_stop(self) -> None:
-        saved_velocities = self.get_control_velocities()
-        self.set_velocities([0.0] * 7)
+        """Stop each joint with a command valid for its current run_mode.
+
+        - ``PP``: zero ``vel_max`` (``0x7024``), restore after ~2s.
+        - ``CSP``: zero ``limit_spd`` (``0x7017``), restore after ~2s.
+        - ``MIT``: Type1 hold at the measured angle (``v=0``, ``t_ff=0``).
+
+        Mixed modes (e.g. first-three MIT + last-four PP) stop each joint
+        with the register / frame that actually affects that mode.
+        """
+        modes = self._modes_or_pp()
+        saved_pp: list[tuple[int, float]] = []
+        saved_csp: list[tuple[int, float]] = []
+
+        for i, (motor, mode) in enumerate(zip(self._motors, modes)):
+            if mode == ControlMode.CSP:
+                saved_csp.append((i, motor.limit_spd))
+                motor.set_limit_spd(0.0)
+            elif mode == ControlMode.MIT:
+                self._hold_mit_joint(motor)
+            else:
+                saved_pp.append((i, motor.control_velocity.velocity))
+                motor.set_velocity(0.0)
+
         time.sleep(2.0)
-        self.set_velocities(saved_velocities)
+
+        for i, vel in saved_pp:
+            self._motors[i].set_velocity(vel)
+        for i, spd in saved_csp:
+            self._motors[i].set_limit_spd(spd)
+
+    def _hold_mit_joint(self, motor: A7liteMotor) -> None:
+        """Send a Type1 MIT hold at the joint's current (or last commanded) angle."""
+        if motor.has_reporting_data():
+            position = motor.angle.angle
+        elif hasattr(motor, "_control_angle"):
+            position = motor.control_angle.angle
+        else:
+            position = 0.0
+        kp = motor.mit_kp if motor.mit_kp is not None else MIT_HOLD_KP
+        kd = motor.mit_kd if motor.mit_kd is not None else MIT_HOLD_KD
+        motor.set_mit(position, 0.0, kp, kd, 0.0)
 
     def _set_angles(self, angles: list[float], *, check_limits: bool = True) -> None:
+        if self._any_mode_is(ControlMode.MIT):
+            raise StateError(
+                "Register angle command is unavailable while any joint is in "
+                "MIT mode; use set_mits() or stream_joint_targets()"
+            )
         if len(angles) != len(self._motors):
             raise ValueError(f"Angles count must be 7, got {len(angles)}")
         if check_limits:
@@ -172,6 +272,225 @@ class A7lite:
                     )
         for motor, angle in zip(self._motors, angles):
             motor.set_angle(angle)
+
+    def _validate_mit_joint(
+        self,
+        i: int,
+        p: float,
+        v: float,
+        kp: float,
+        kd: float,
+        t: float,
+    ) -> None:
+        if not (MIT_P_MIN <= p <= MIT_P_MAX):
+            raise ValidationError(
+                f"Joint {i} MIT position {p} out of range "
+                f"[{MIT_P_MIN}, {MIT_P_MAX}]"
+            )
+        if not (MIT_V_MIN <= v <= MIT_V_MAX):
+            raise ValidationError(
+                f"Joint {i} MIT velocity {v} out of range "
+                f"[{MIT_V_MIN}, {MIT_V_MAX}]"
+            )
+        if not (MIT_KP_MIN <= kp <= MIT_KP_MAX):
+            raise ValidationError(
+                f"Joint {i} MIT kp {kp} out of range [{MIT_KP_MIN}, {MIT_KP_MAX}]"
+            )
+        if not (MIT_KD_MIN <= kd <= MIT_KD_MAX):
+            raise ValidationError(
+                f"Joint {i} MIT kd {kd} out of range [{MIT_KD_MIN}, {MIT_KD_MAX}]"
+            )
+        if not (MIT_T_MIN <= t <= MIT_T_MAX):
+            raise ValidationError(
+                f"Joint {i} MIT torque {t} out of range "
+                f"[{MIT_T_MIN}, {MIT_T_MAX}]"
+            )
+
+    def set_mits(
+        self,
+        positions: list[float],
+        *,
+        kps: list[float],
+        kds: list[float],
+        velocities: list[float] | None = None,
+        torques: list[float] | None = None,
+        check_limits: bool = True,
+    ) -> None:
+        """Stream one MIT / 运控 command to all 7 joints (RS00 comm type 1).
+
+        Must be called after ``set_control_mode(ControlMode.MIT)`` and
+        ``enable()``. Host should call this periodically (typically
+        ≥100 Hz); do not rely on PP ``move_j`` / ``set_angles``.
+
+        For mixed PP/MIT/CSP arms, use :meth:`stream_joint_targets` instead.
+
+        Args:
+            positions: Desired joint angles (rad), length 7.
+            kps: Position gains, each in ``[0, 500]``.
+            kds: Velocity gains, each in ``[0, 5]``.
+            velocities: Desired joint velocities (rad/s); default all zeros.
+            torques: Feed-forward torques (N·m); default all zeros.
+            check_limits: If True, enforce URDF joint soft limits on
+                ``positions``.
+
+        Raises:
+            StateError: If control mode is not MIT on every joint.
+            ValidationError: If lengths or value ranges are invalid.
+        """
+        if not self._all_modes_are(ControlMode.MIT):
+            raise StateError(
+                "set_mits() requires all joints in ControlMode.MIT; "
+                "call set_control_mode(ControlMode.MIT) then enable(), "
+                "or use stream_joint_targets() for mixed modes"
+            )
+        n = len(self._motors)
+        if velocities is None:
+            velocities = [0.0] * n
+        if torques is None:
+            torques = [0.0] * n
+        for name, values in (
+            ("positions", positions),
+            ("velocities", velocities),
+            ("kps", kps),
+            ("kds", kds),
+            ("torques", torques),
+        ):
+            if len(values) != n:
+                raise ValueError(f"{name} count must be {n}, got {len(values)}")
+
+        if check_limits:
+            for i, (angle, (lo, hi)) in enumerate(
+                zip(positions, self._kx.get_joint_limits())
+            ):
+                if not (lo <= angle <= hi):
+                    raise ValidationError(
+                        f"Joint {i} angle {angle:.4f} rad out of range "
+                        f"[{lo:.4f}, {hi:.4f}]"
+                    )
+
+        for i, (p, v, kp, kd, t) in enumerate(
+            zip(positions, velocities, kps, kds, torques)
+        ):
+            self._validate_mit_joint(i, p, v, kp, kd, t)
+
+        for motor, p, v, kp, kd, t in zip(
+            self._motors, positions, velocities, kps, kds, torques
+        ):
+            motor.set_mit(p, v, kp, kd, t)
+
+    def stream_joint_targets(
+        self,
+        positions: list[float],
+        *,
+        kps: list[float] | None = None,
+        kds: list[float] | None = None,
+        velocities: list[float] | None = None,
+        torques: list[float] | None = None,
+        check_limits: bool = True,
+    ) -> None:
+        """Stream one cycle of targets with per-joint PP/MIT/CSP dispatch.
+
+        - ``MIT`` joints: RS00 Type1 ``set_mit(p, v, kp, kd, t_ff)``
+        - ``PP`` / ``CSP`` joints: register ``loc_ref`` via ``set_angle``
+
+        Must be called after :meth:`set_control_modes` / :meth:`set_control_mode`
+        and :meth:`enable`. Host should call this periodically (≥100 Hz) when
+        any joint is in MIT or CSP.
+        """
+        n = len(self._motors)
+        modes = self._control_modes
+        if modes is None:
+            raise StateError(
+                "stream_joint_targets() requires set_control_modes() / "
+                "set_control_mode() before enable()"
+            )
+        if kps is None:
+            kps = [0.0] * n
+        if kds is None:
+            kds = [0.0] * n
+        if velocities is None:
+            velocities = [0.0] * n
+        if torques is None:
+            torques = [0.0] * n
+        for name, values in (
+            ("positions", positions),
+            ("velocities", velocities),
+            ("kps", kps),
+            ("kds", kds),
+            ("torques", torques),
+        ):
+            if len(values) != n:
+                raise ValueError(f"{name} count must be {n}, got {len(values)}")
+
+        if check_limits:
+            for i, (angle, (lo, hi)) in enumerate(
+                zip(positions, self._kx.get_joint_limits())
+            ):
+                if not (lo <= angle <= hi):
+                    raise ValidationError(
+                        f"Joint {i} angle {angle:.4f} rad out of range "
+                        f"[{lo:.4f}, {hi:.4f}]"
+                    )
+
+        for i, (mode, p, v, kp, kd, t) in enumerate(
+            zip(modes, positions, velocities, kps, kds, torques)
+        ):
+            if mode == ControlMode.MIT:
+                self._validate_mit_joint(i, p, v, kp, kd, t)
+
+        for motor, mode, p, v, kp, kd, t in zip(
+            self._motors, modes, positions, velocities, kps, kds, torques
+        ):
+            if mode == ControlMode.MIT:
+                motor.set_mit(p, v, kp, kd, t)
+            else:
+                # PP and CSP both stream loc_ref (0x7016).
+                motor.set_angle(p)
+
+    def set_csp_angles(
+        self,
+        angles: list[float],
+        *,
+        check_limits: bool = True,
+    ) -> None:
+        """Stream CSP position targets to all 7 joints (RS00 ``loc_ref`` / ``0x7016``).
+
+        Must be called after ``set_control_mode(ControlMode.CSP)`` and
+        ``enable()``. Host should call this periodically (typically
+        ≥100 Hz). Set velocity cap first with :meth:`set_limit_spds`.
+
+        Args:
+            angles: Desired joint angles (rad), length 7.
+            check_limits: If True, enforce URDF joint soft limits.
+
+        Raises:
+            StateError: If control mode is not CSP on every joint.
+            ValidationError: If lengths or angles are invalid.
+        """
+        if not self._all_modes_are(ControlMode.CSP):
+            raise StateError(
+                "set_csp_angles() requires all joints in ControlMode.CSP; "
+                "call set_control_mode(ControlMode.CSP) then enable(), "
+                "or use stream_joint_targets() for mixed modes"
+            )
+        self._set_angles(angles, check_limits=check_limits)
+
+    def set_limit_spds(self, limit_spds: list[float]) -> None:
+        """Set CSP velocity limits (RS00 ``0x7017``) for all joints, rad/s."""
+        if len(limit_spds) != len(self._motors):
+            raise ValueError(f"limit_spds count must be 7, got {len(limit_spds)}")
+        for i, spd in enumerate(limit_spds):
+            if not (CSP_LIMIT_SPD_MIN <= spd <= CSP_LIMIT_SPD_MAX):
+                raise ValidationError(
+                    f"Joint {i} CSP limit_spd {spd} out of range "
+                    f"[{CSP_LIMIT_SPD_MIN}, {CSP_LIMIT_SPD_MAX}]"
+                )
+        for motor, spd in zip(self._motors, limit_spds):
+            motor.set_limit_spd(spd)
+
+    def get_limit_spds(self) -> list[float]:
+        """Return cached CSP velocity limits (rad/s) for all joints."""
+        return [motor.limit_spd for motor in self._motors]
 
     def set_velocities(self, velocities: list[float]) -> None:
         if len(velocities) != len(self._motors):

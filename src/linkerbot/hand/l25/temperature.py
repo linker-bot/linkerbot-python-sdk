@@ -13,7 +13,7 @@ import can
 
 from linkerbot.comm import CANMessageDispatcher
 from linkerbot.exceptions import ValidationError
-from linkerbot.relay import DataRelay
+from linkerbot.hand._polling_relay import PollingDataRelay
 
 _JOINT_COUNT = 16
 
@@ -203,10 +203,8 @@ class TemperatureManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-        self._relay = DataRelay[TemperatureData]()
         self._pending: dict[int, list[float]] = {}
-        self._in_flight = False
-        self._in_flight_since: float = 0
+        self._relay = PollingDataRelay[TemperatureData](self._pending.clear)
 
     def get_blocking(self, timeout_ms: float = 100) -> TemperatureData:
         """Request and wait for current motor temperatures (blocking).
@@ -230,10 +228,7 @@ class TemperatureManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-        self._pending.clear()
-        self._in_flight = False
-        self._send_sense_request()
-        return self._relay.wait(timeout_ms / 1000.0)
+        return self._relay.request(self._send_request_frames, timeout_ms / 1000.0)
 
     def get_snapshot(self) -> TemperatureData | None:
         """Get the most recent cached temperature data (non-blocking).
@@ -251,17 +246,13 @@ class TemperatureManager:
     def _set_event_sink(self, sink: Callable[[TemperatureData], None]) -> None:
         self._relay.set_sink(sink)
 
-    _IN_FLIGHT_TIMEOUT_S = 0.2
-
     def _send_sense_request(self) -> None:
-        if (
-            self._in_flight
-            and (time.monotonic() - self._in_flight_since) < self._IN_FLIGHT_TIMEOUT_S
-        ):
-            return
-        self._in_flight = True
-        self._in_flight_since = time.monotonic()
-        self._pending.clear()
+        self._relay.poll(self._send_request_frames)
+
+    def _cancel_sense_request(self) -> None:
+        self._relay.cancel_polling()
+
+    def _send_request_frames(self) -> None:
         for cmd in self._FRAME_MAP:
             msg = can.Message(
                 arbitration_id=self._arbitration_id,
@@ -297,12 +288,10 @@ class TemperatureManager:
         # All frames received — merge into L25Temperature
         kwargs: dict[str, float] = {}
         for frame_cmd, fields in self._FRAME_MAP.items():
-            for field, value in zip(fields, self._pending[frame_cmd]):
+            for field, value in zip(fields, self._pending[frame_cmd], strict=True):
                 if field is not None:
                     kwargs[field] = value
 
         temperatures = L25Temperature(**kwargs)
         temp_data = TemperatureData(temperatures=temperatures, timestamp=time.time())
-        self._in_flight = False
-        self._pending.clear()
         self._relay.push(temp_data)

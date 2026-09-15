@@ -29,3 +29,7 @@ uv add linkerbot --extra kinetix
 ```
 
 > **Windows users:** Pinocchio does not support pip on Windows. Use `conda install pinocchio -c conda-forge` instead.
+
+## Project information
+
+- [Changelog](CHANGELOG.md)

@@ -2,6 +2,7 @@
 
 import os
 import time
+from pathlib import Path
 from typing import Literal, cast
 
 import pytest
@@ -24,6 +25,7 @@ L6_TEST_ORDER: dict[str, int] = {
     "test_force_sensor": 13,
     "test_stress": 14,
 }
+_NON_HARDWARE_TEST_MODULES = frozenset({"test_angle_mapping", "test_validation"})
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -35,6 +37,8 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             indexed.append((item, (0, idx, 0)))
         else:
             stem = item.path.stem
+            if stem not in _NON_HARDWARE_TEST_MODULES:
+                item.add_marker(pytest.mark.hardware)
             rank = L6_TEST_ORDER.get(stem)
             if rank is not None:
                 indexed.append((item, (1, rank, 0)))
@@ -46,7 +50,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 @pytest.fixture(scope="module")
-def l6_hand():
+def l6_hand(isolate_hand_config: Path):
     """Create L6 hand instance for the test module.
 
     Uses environment variables for configuration:
@@ -56,7 +60,11 @@ def l6_hand():
     interface = os.environ.get("CAN_INTERFACE", "can0")
     side = cast(Literal["left", "right"], os.environ.get("L6_SIDE", "left"))
 
-    with L6(side=side, interface_name=interface) as hand:
+    with L6(
+        side=side,
+        interface_name=interface,
+        angle_mapping_path=isolate_hand_config / "l6.toml",
+    ) as hand:
         hand.speed.set_speeds([100.0] * 6)
         hand.angle.set_angles([100.0] * 6)
         time.sleep(1.0)
@@ -64,12 +72,16 @@ def l6_hand():
 
 
 @pytest.fixture(scope="session")
-def closed_hand():
+def closed_hand(isolate_hand_config: Path):
     """Create a closed L6 hand instance for post-close tests."""
     interface = os.environ.get("CAN_INTERFACE", "can0")
     side = cast(Literal["left", "right"], os.environ.get("L6_SIDE", "left"))
 
-    with L6(side=side, interface_name=interface) as hand:
+    with L6(
+        side=side,
+        interface_name=interface,
+        angle_mapping_path=isolate_hand_config / "l6.toml",
+    ) as hand:
         pass
     return hand
 

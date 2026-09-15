@@ -3,6 +3,7 @@
 This module provides the VersionManager class for reading device version information.
 """
 
+import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -96,6 +97,7 @@ class VersionManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
+        self._request_lock = threading.Lock()
 
         # Serial number frame assembly
         self._sn_frames: SerialNumberFrames | None = None
@@ -129,33 +131,35 @@ class VersionManager:
             >>> print(f"Firmware Version: {info.firmware_version}")
             >>> print(f"Mechanical Version: {info.mechanical_version}")
         """
-        timeout = self._QUERY_TIMEOUT_MS
+        with self._request_lock:
+            timeout = self._QUERY_TIMEOUT_MS
+            fw = self._get_firmware_version_blocking(timeout)
+            mech = self._get_mechanical_version_blocking(timeout)
+            pcb = self._get_pcb_version_blocking(timeout)
+            sn = self._get_serial_number_blocking(timeout)
 
-        fw = self._get_firmware_version_blocking(timeout)
-        mech = self._get_mechanical_version_blocking(timeout)
-        pcb = self._get_pcb_version_blocking(timeout)
-        sn = self._get_serial_number_blocking(timeout)
-
-        return DeviceInfo(
-            serial_number=sn,
-            pcb_version=pcb,
-            firmware_version=fw,
-            mechanical_version=mech,
-            timestamp=time.time(),
-        )
+            return DeviceInfo(
+                serial_number=sn,
+                pcb_version=pcb,
+                firmware_version=fw,
+                mechanical_version=mech,
+                timestamp=time.time(),
+            )
 
     def _get_serial_number_blocking(self, timeout_ms: float) -> str:
-        self._sn_frames = None
-        self._sn_in_flight = False
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=[self._SN_CMD],
             is_extended_id=False,
         )
-        self._sn_in_flight = True
-        self._sn_in_flight_since = time.monotonic()
-        self._dispatcher.send(msg)
-        return self._sn_relay.wait(timeout_ms / 1000.0)
+
+        def send() -> None:
+            self._sn_frames = None
+            self._sn_in_flight = True
+            self._sn_in_flight_since = time.monotonic()
+            self._dispatcher.send(msg)
+
+        return self._sn_relay.request(send, timeout_ms / 1000.0)
 
     def _get_pcb_version_blocking(self, timeout_ms: float) -> Version:
         msg = can.Message(
@@ -163,8 +167,9 @@ class VersionManager:
             data=[self._PCB_VERSION_CMD],
             is_extended_id=False,
         )
-        self._dispatcher.send(msg)
-        return self._pcb_relay.wait(timeout_ms / 1000.0)
+        return self._pcb_relay.request(
+            lambda: self._dispatcher.send(msg), timeout_ms / 1000.0
+        )
 
     def _get_firmware_version_blocking(self, timeout_ms: float) -> Version:
         msg = can.Message(
@@ -172,8 +177,9 @@ class VersionManager:
             data=[self._FIRMWARE_VERSION_CMD],
             is_extended_id=False,
         )
-        self._dispatcher.send(msg)
-        return self._firmware_relay.wait(timeout_ms / 1000.0)
+        return self._firmware_relay.request(
+            lambda: self._dispatcher.send(msg), timeout_ms / 1000.0
+        )
 
     def _get_mechanical_version_blocking(self, timeout_ms: float) -> Version:
         msg = can.Message(
@@ -181,8 +187,9 @@ class VersionManager:
             data=[self._MECHANICAL_VERSION_CMD],
             is_extended_id=False,
         )
-        self._dispatcher.send(msg)
-        return self._mechanical_relay.wait(timeout_ms / 1000.0)
+        return self._mechanical_relay.request(
+            lambda: self._dispatcher.send(msg), timeout_ms / 1000.0
+        )
 
     def _on_message(self, msg: can.Message) -> None:
         # Internal callback
