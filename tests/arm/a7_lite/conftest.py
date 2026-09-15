@@ -12,6 +12,7 @@ NUM_JOINTS = 7
 
 # Desired run order for a7_lite test modules (lower = earlier).
 A7_LITE_TEST_ORDER: dict[str, int] = {
+    "test_mit_protocol": 0,  # pure unit tests, no hardware
     "test_lifecycle": 1,
     "test_basic": 2,
     "test_safety": 3,

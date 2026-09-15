@@ -4,6 +4,18 @@ from enum import Enum
 
 import can
 
+from linkerbot.arm.a7_lite.consts import (
+    MIT_KD_MAX,
+    MIT_KD_MIN,
+    MIT_KP_MAX,
+    MIT_KP_MIN,
+    MIT_P_MAX,
+    MIT_P_MIN,
+    MIT_T_MAX,
+    MIT_T_MIN,
+    MIT_V_MAX,
+    MIT_V_MIN,
+)
 from linkerbot.arm.common import ControlMode
 from linkerbot.arm.common.model import (
     AccelerationState,
@@ -19,6 +31,7 @@ _MASTER_ID = 0xFD
 
 
 class CommType(int, Enum):
+    Type1 = 0x01  # MIT / 运控 control command
     Type2 = 0x02
     Type3 = 0x03
     Type4 = 0x04
@@ -30,9 +43,24 @@ class CommType(int, Enum):
     Type24 = 0x18
 
 
+def float_to_uint(x: float, x_min: float, x_max: float, bits: int) -> int:
+    """Quantize ``x`` into an unsigned integer in ``[0, 2**bits - 1]``.
+
+    Matches the RS00 manual ``float_to_uint`` helper used for MIT packing.
+    """
+    if x > x_max:
+        x = x_max
+    elif x < x_min:
+        x = x_min
+    span = x_max - x_min
+    return int((x - x_min) * ((1 << bits) - 1) / span)
+
+
 class A7liteMotor:
     _CONTROL_MODE_MAP = {
         ControlMode.PP: 0x01,
+        ControlMode.MIT: 0x00,
+        ControlMode.CSP: 0x05,
     }
 
     def __init__(self, id: int, dispatcher: CANMessageDispatcher) -> None:
@@ -49,6 +77,10 @@ class A7liteMotor:
         self._speed_kp: float
         self._speed_ki: float
         self._speed_filt_gain: float
+        self._limit_spd: float
+        self._mit_velocity: float | None = None
+        self._mit_kp: float | None = None
+        self._mit_kd: float | None = None
         self._read_relay: DataRelay[bytes] = DataRelay()
 
         self._dispatcher.subscribe(self._on_message)
@@ -97,6 +129,25 @@ class A7liteMotor:
     def speed_filt_gain(self) -> float:
         return self._speed_filt_gain
 
+    @property
+    def limit_spd(self) -> float:
+        return self._limit_spd
+
+    @property
+    def mit_velocity(self) -> float | None:
+        """Last Type1 MIT desired velocity, or ``None`` if never commanded."""
+        return self._mit_velocity
+
+    @property
+    def mit_kp(self) -> float | None:
+        """Last Type1 MIT position gain, or ``None`` if never commanded."""
+        return self._mit_kp
+
+    @property
+    def mit_kd(self) -> float | None:
+        """Last Type1 MIT velocity gain, or ``None`` if never commanded."""
+        return self._mit_kd
+
     def _generate_arbitration_id(self, comm_type: CommType) -> int:
         motor_id_part = self._id & 0xFF
         master_id_part = _MASTER_ID << 8
@@ -132,6 +183,11 @@ class A7liteMotor:
         self._control_angle = AngleState(angle=angle, timestamp=time.time())
         self._write_register_float(0x7016, angle)
 
+    def set_limit_spd(self, limit_spd: float) -> None:
+        """CSP velocity limit (RS00 ``0x7017``), rad/s."""
+        self._limit_spd = limit_spd
+        self._write_register_float(0x7017, limit_spd)
+
     def set_velocity(self, velocity: float) -> None:
         self._control_velocity = VelocityState(velocity=velocity, timestamp=time.time())
         self._write_register_float(0x7024, velocity)
@@ -141,6 +197,45 @@ class A7liteMotor:
             acceleration=acceleration, timestamp=time.time()
         )
         self._write_register_float(0x7025, acceleration)
+
+    def set_mit(
+        self,
+        position: float,
+        velocity: float,
+        kp: float,
+        kd: float,
+        torque: float = 0.0,
+    ) -> None:
+        """Send one RS00 private-protocol MIT / 运控 command (comm type 1).
+
+        Control law: ``t_ref = kd*(v_des-v) + kp*(p_des-p) + t_ff``.
+
+        Torque feed-forward is packed into CAN ID bits 23..8; ``p/v/kp/kd``
+        occupy the 8-byte data field (big-endian uint16 each).
+        """
+        now = time.time()
+        self._control_angle = AngleState(angle=position, timestamp=now)
+        # Keep PP vel_max cache (_control_velocity / 0x7024) separate from MIT v_des.
+        self._mit_velocity = velocity
+        self._mit_kp = kp
+        self._mit_kd = kd
+
+        p_u = float_to_uint(position, MIT_P_MIN, MIT_P_MAX, 16)
+        v_u = float_to_uint(velocity, MIT_V_MIN, MIT_V_MAX, 16)
+        kp_u = float_to_uint(kp, MIT_KP_MIN, MIT_KP_MAX, 16)
+        kd_u = float_to_uint(kd, MIT_KD_MIN, MIT_KD_MAX, 16)
+        t_u = float_to_uint(torque, MIT_T_MIN, MIT_T_MAX, 16)
+
+        arbitration_id = (
+            ((CommType.Type1 & 0x1F) << 24) | ((t_u & 0xFFFF) << 8) | (self._id & 0xFF)
+        )
+        data = struct.pack(">HHHH", p_u, v_u, kp_u, kd_u)
+        msg = can.Message(
+            arbitration_id=arbitration_id,
+            data=data,
+            is_extended_id=True,
+        )
+        self._dispatcher.send(msg)
 
     def set_position_kp(self, kp: float) -> None:
         self._loc_kp = kp
@@ -210,6 +305,7 @@ class A7liteMotor:
         self._speed_kp = self._read_register_float(0x701F, timeout_s)
         self._speed_ki = self._read_register_float(0x7020, timeout_s)
         self._speed_filt_gain = self._read_register_float(0x7021, timeout_s)
+        self._limit_spd = self._read_register_float(0x7017, timeout_s)
 
     def _on_message(self, msg: can.Message) -> None:
         arb_id = msg.arbitration_id
