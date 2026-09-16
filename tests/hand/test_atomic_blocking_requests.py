@@ -14,8 +14,8 @@ import pytest
 from linkerbot.exceptions import TimeoutError
 from linkerbot.hand.l6.angle import AngleManager as L6AngleManager
 from linkerbot.hand.l6.version import VersionManager as L6VersionManager
+from linkerbot.hand.l20.angle import AngleManager as L20AngleManager
 from linkerbot.hand.l20lite.angle import AngleManager as L20LiteAngleManager
-from linkerbot.hand.l25.angle import AngleManager as L25AngleManager
 from linkerbot.hand.o6.angle import AngleManager as O6AngleManager
 from linkerbot.hand.o6.fault import FaultManager as O6FaultManager
 
@@ -54,7 +54,7 @@ def _response(request: can.Message, data: list[int]) -> can.Message:
         (L6AngleManager, {0x01: 6}, 6),
         (O6AngleManager, {0x01: 6}, 6),
         (L20LiteAngleManager, {0x01: 6, 0x04: 4}, 10),
-        (L25AngleManager, {cmd: 6 for cmd in range(0x41, 0x46)}, 16),
+        (L20AngleManager, {cmd: 6 for cmd in range(0x41, 0x46)}, 16),
     ),
 )
 def test_classic_angle_managers_capture_synchronous_responses(

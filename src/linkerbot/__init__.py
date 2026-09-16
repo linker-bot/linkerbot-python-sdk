@@ -25,7 +25,7 @@ from .exceptions import (
 
 if TYPE_CHECKING:  # pragma: no cover - import-time only for static checkers
     from .arm import A7, P7, A7lite, ControlMode, Pose
-    from .hand import L6, L25, L30, O6, O20, L20lite, L30Bus, O30i
+    from .hand import L6, L20, L30, O6, O20, O30, L20lite, L30Bus
 
 # Map every lazily-exported public name to (submodule, attribute).
 # Adding a new public re-export here is the only change required to surface it
@@ -38,12 +38,12 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "Pose": ("linkerbot.arm", "Pose"),
     "L6": ("linkerbot.hand", "L6"),
     "L20lite": ("linkerbot.hand", "L20lite"),
-    "L25": ("linkerbot.hand", "L25"),
+    "L20": ("linkerbot.hand", "L20"),
     "L30": ("linkerbot.hand", "L30"),
     "L30Bus": ("linkerbot.hand", "L30Bus"),
     "O6": ("linkerbot.hand", "O6"),
     "O20": ("linkerbot.hand", "O20"),
-    "O30i": ("linkerbot.hand", "O30i"),
+    "O30": ("linkerbot.hand", "O30"),
 }
 
 
@@ -70,11 +70,11 @@ __all__ = [
     "L6",
     "L20lite",
     "O6",
-    "L25",
+    "L20",
     "L30",
     "L30Bus",
     "O20",
-    "O30i",
+    "O30",
     "A7",
     "P7",
     "A7lite",

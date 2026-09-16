@@ -15,7 +15,7 @@ from linkerbot.hand.hand_protocol_v1 import (
 )
 from tests.hand.hand_protocol_v1.fakes import FakeDispatcher
 
-pytestmark = [pytest.mark.o30i, pytest.mark.canfd]
+pytestmark = [pytest.mark.o30, pytest.mark.canfd]
 
 
 def _response(data: bytes, *, arbitration_id: int = 0x401) -> CANFDMessage:
