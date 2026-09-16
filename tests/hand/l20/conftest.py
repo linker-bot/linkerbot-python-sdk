@@ -1,0 +1,120 @@
+"""Fixtures for L20 robotic hand tests."""
+
+import os
+import time
+from pathlib import Path
+from typing import Literal, cast
+
+import pytest
+
+from linkerbot import L20
+
+L20_TEST_ORDER: dict[str, int] = {
+    "test_validation": 1,
+    "test_lifecycle": 2,
+    "test_fault": 3,
+    "test_error_handling": 4,
+    "test_polling": 5,
+    "test_streaming": 6,
+    "test_version": 7,
+    "test_temperature": 8,
+    "test_angle": 9,
+    "test_speed": 10,
+    "test_torque": 11,
+    "test_force_sensor": 12,
+    "test_stress": 13,
+}
+_NON_HARDWARE_TEST_MODULES = frozenset({"test_angle_mapping", "test_validation"})
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Reorder l20 tests: validation -> lifecycle -> ... -> stress."""
+    indexed: list[tuple[pytest.Item, tuple[int, int, int]]] = []
+    for idx, item in enumerate(items):
+        path_str = str(item.path)
+        if "hand/l20" not in path_str or "conftest" in path_str:
+            indexed.append((item, (0, idx, 0)))
+        else:
+            stem = item.path.stem
+            if stem not in _NON_HARDWARE_TEST_MODULES:
+                item.add_marker(pytest.mark.hardware)
+            rank = L20_TEST_ORDER.get(stem)
+            if rank is not None:
+                indexed.append((item, (1, rank, 0)))
+            else:
+                indexed.append((item, (0, idx, 0)))
+
+    indexed.sort(key=lambda x: x[1])
+    items[:] = [i for i, _ in indexed]
+
+
+@pytest.fixture(scope="module")
+def l20_hand(isolate_hand_config: Path):
+    """Create L20 hand instance for the test module.
+
+    Uses environment variables for configuration:
+    - CAN_INTERFACE: CAN interface name (default: "can0")
+    - L20_SIDE: Hand side, "left" or "right" (default: "left")
+    """
+    interface = os.environ.get("CAN_INTERFACE", "can0")
+    side = cast(Literal["left", "right"], os.environ.get("L20_SIDE", "left"))
+
+    # Hardware-verified open pose (natural splay)
+    open_pose = [
+        100.0,
+        100.0,
+        100.0,
+        100.0,  # thumb
+        100.0,
+        100.0,
+        100.0,  # index
+        67.0,
+        100.0,
+        100.0,  # middle
+        33.0,
+        100.0,
+        100.0,  # ring
+        0.0,
+        100.0,
+        100.0,  # pinky
+    ]
+
+    with L20(
+        side=side,
+        interface_name=interface,
+        angle_mapping_path=isolate_hand_config / "l20.toml",
+    ) as hand:
+        hand.speed.set_speeds([100.0] * 16)
+        hand.angle.set_angles(open_pose)
+        time.sleep(2.0)
+        yield hand
+
+
+@pytest.fixture(scope="session")
+def closed_hand(isolate_hand_config: Path):
+    """Create a closed L20 hand instance for post-close tests."""
+    interface = os.environ.get("CAN_INTERFACE", "can0")
+    side = cast(Literal["left", "right"], os.environ.get("L20_SIDE", "left"))
+
+    with L20(
+        side=side,
+        interface_name=interface,
+        angle_mapping_path=isolate_hand_config / "l20.toml",
+    ) as hand:
+        pass
+    return hand
+
+
+def move_and_wait(hand: L20, angles: list[float], wait_sec: float = 2.0) -> None:
+    """Move hand to target angles and wait for completion."""
+    hand.angle.set_angles(angles)
+    time.sleep(wait_sec)
+
+
+def move_and_print(hand: L20, angles: list[float], wait_sec: float = 2.0):
+    """Move hand to target angles, wait, then print current angles."""
+    hand.angle.set_angles(angles)
+    time.sleep(wait_sec)
+    data = hand.angle.get_blocking(timeout_ms=500)
+    print(f"\n  Current angles: {[f'{a:.1f}' for a in data.angles.to_list()]}")
+    return data

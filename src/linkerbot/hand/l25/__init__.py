@@ -1,61 +1,30 @@
-"""L25 robotic hand control package.
+"""Compatibility wrapper for :mod:`linkerbot.hand.l20`.
 
-This package provides the L25 interface for controlling the L25 robotic hand
-via CAN bus communication.
+Use the renamed ``l20`` package for new code.
 """
 
-from .angle import AngleData, L25Angle
-from .events import (
-    AngleEvent,
-    FaultEvent,
-    ForceSensorEvent,
-    L25Snapshot,
-    SensorEvent,
-    SensorSource,
-    SpeedEvent,
-    TemperatureEvent,
-    TorqueEvent,
-)
-from .fault import FaultData, FaultManager, L25Fault, L25FaultCode
-from .force_sensor import AllFingersData, ForceSensorData, ForceSensorManager
-from .l25 import L25
-from .speed import L25Speed, SpeedData
-from .temperature import L25Temperature, TemperatureData, TemperatureManager
-from .torque import L25Torque, TorqueData
-from .version import DeviceInfo, Version, VersionManager
+import sys
+from importlib import import_module
 
-__all__ = [
-    "L25",
-    # Managers
-    "ForceSensorManager",
-    "TemperatureManager",
-    "FaultManager",
-    "VersionManager",
-    # Data containers
-    "AngleData",
-    "SpeedData",
-    "TorqueData",
-    "ForceSensorData",
-    "AllFingersData",
-    "TemperatureData",
-    "FaultData",
-    "DeviceInfo",
-    "L25Snapshot",
-    # Event types
-    "AngleEvent",
-    "SpeedEvent",
-    "TorqueEvent",
-    "TemperatureEvent",
-    "FaultEvent",
-    "ForceSensorEvent",
-    "SensorEvent",
-    "SensorSource",
-    # Type classes
-    "L25Angle",
-    "L25Speed",
-    "L25Torque",
-    "L25Temperature",
-    "L25Fault",
-    "L25FaultCode",
-    "Version",
-]
+_target = import_module("linkerbot.hand.l20")
+for _name in getattr(_target, "__all__", ()):
+    globals()[_name] = getattr(_target, _name)
+
+_module_aliases = {"l25": "l20"}
+for _module in (
+    "angle",
+    "events",
+    "fault",
+    "force_sensor",
+    "speed",
+    "temperature",
+    "torque",
+    "version",
+    "l25",
+    "l20",
+):
+    sys.modules[f"{__name__}.{_module}"] = import_module(
+        f"linkerbot.hand.l20.{_module_aliases.get(_module, _module)}"
+    )
+
+__all__ = list(getattr(_target, "__all__", ()))

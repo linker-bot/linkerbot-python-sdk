@@ -3,7 +3,7 @@ import pytest
 from linkerbot.exceptions import ValidationError
 from linkerbot.hand.hand_protocol_v1 import protocol
 
-pytestmark = [pytest.mark.o30i, pytest.mark.canfd]
+pytestmark = [pytest.mark.o30, pytest.mark.canfd]
 
 
 def test_response_id_uses_hop_response_flag() -> None:

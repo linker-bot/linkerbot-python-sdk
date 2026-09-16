@@ -2,7 +2,7 @@
 
 L30 是基于 CANFD 的 17 关节灵巧手。SDK 使用 `node_id` 寻址设备，支持单只手、同一 CANFD 总线上的多只手，以及多个 CANFD 模块/通道上的多只手。
 
-SDK 支持两种 CAN FD 连接方式：默认使用厂商 `libcanbus.so` / `HCanbus.dll`，Linux 也可以通过 python-can 使用 SocketCAN。SocketCAN 的系统配置与连接示例见 [CAN FD 总线（L30 / O20 / O30i）](../canfd.md)。
+SDK 支持两种 CAN FD 连接方式：默认使用厂商 `libcanbus.so` / `HCanbus.dll`，Linux 也可以通过 python-can 使用 SocketCAN。SocketCAN 的系统配置与连接示例见 [CAN FD 总线（L30 / O20 / O30）](../canfd.md)。
 
 ## 厂商动态库后端准备工作
 
