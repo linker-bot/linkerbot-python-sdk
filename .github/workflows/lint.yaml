@@ -1,0 +1,36 @@
+name: Lint and Test
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_call:
+jobs:
+  lint:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: AutoCorrect
+        uses: huacnlee/autocorrect-action@v2.13.3
+
+      - name: Install dprint
+        run: curl -fsSL https://dprint.dev/install.sh | sh
+      - name: Check formatting
+        run: ~/.dprint/bin/dprint check
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          version: latest
+      - name: Lint
+        run: |
+          uv sync --all-groups --all-extras
+          uv run ruff check .
+          uv run ruff format --check --diff .
+          uv run ty check .
+
+      - name: Test
+        run: uv run pytest
