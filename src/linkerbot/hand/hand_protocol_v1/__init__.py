@@ -2,7 +2,7 @@
 
 The package contains the reusable framing and transaction layer shared by
 hands that implement the HOP object protocol. Device-specific packages, such
-as :mod:`linkerbot.hand.o30i`, define their supported main-index objects and
+as :mod:`linkerbot.hand.o30`, define their supported main-index objects and
 safe high-level operations on top of :class:`HandProtocolV1`.
 """
 

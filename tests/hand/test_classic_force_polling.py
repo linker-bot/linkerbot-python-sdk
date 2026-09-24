@@ -9,10 +9,10 @@ import can
 import pytest
 
 from linkerbot.hand.l6.force_sensor import ForceSensorManager as L6ForceManager
+from linkerbot.hand.l20.force_sensor import ForceSensorManager as L20ForceManager
 from linkerbot.hand.l20lite.force_sensor import (
     ForceSensorManager as L20LiteForceManager,
 )
-from linkerbot.hand.l25.force_sensor import ForceSensorManager as L25ForceManager
 from linkerbot.hand.o6.force_sensor import ForceSensorManager as O6ForceManager
 
 
@@ -34,7 +34,7 @@ class _RecordingDispatcher:
         (L6ForceManager, 0xC6),
         (O6ForceManager, 0xA4),
         (L20LiteForceManager, 0xC6),
-        (L25ForceManager, 0xC6),
+        (L20ForceManager, 0xC6),
     ),
 )
 def test_force_poll_sends_all_fingers_in_order_without_fixed_delay(

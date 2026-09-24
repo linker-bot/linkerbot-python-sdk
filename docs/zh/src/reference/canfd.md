@@ -1,13 +1,13 @@
-# CAN FD 总线（L30 / O20 / O30i）
+# CAN FD 总线（L30 / O20 / O30）
 
-本页说明如何在 Linux 上通过 **python-can + SocketCAN** 连接 L30、O20 和 O30i。SDK 仍保留厂商动态库后端；如需使用 `libcanbus.so` / `HCanbus.dll`，请分别参考 [L30](./l30/README.md)、[O20](./o20/README.md) 和 [O30i](./o30i/README.md)。
+本页说明如何在 Linux 上通过 **python-can + SocketCAN** 连接 L30、O20 和 O30。SDK 仍保留厂商动态库后端；如需使用 `libcanbus.so` / `HCanbus.dll`，请分别参考 [L30](./l30/README.md)、[O20](./o20/README.md) 和 [O30](./o30/README.md)。
 
 ## 两种 CAN FD 后端
 
-| 后端       | `interface_type`   | 适用环境        | 连接参数                                                            |
-| ---------- | ------------------ | --------------- | ------------------------------------------------------------------- |
-| 厂商动态库 | `"ctypes"`（默认） | Linux / Windows | `device_index`、`channel_index` 或 O20 的 `device`、`channel`       |
-| SocketCAN  | `"socketcan"`      | Linux           | L30 使用 `channel="can0"`；O20/O30i 使用 `socketcan_channel="can0"` |
+| 后端       | `interface_type`   | 适用环境        | 连接参数                                                           |
+| ---------- | ------------------ | --------------- | ------------------------------------------------------------------ |
+| 厂商动态库 | `"ctypes"`（默认） | Linux / Windows | `device_index`、`channel_index` 或 O20 的 `device`、`channel`      |
+| SocketCAN  | `"socketcan"`      | Linux           | L30 使用 `channel="can0"`；O20/O30 使用 `socketcan_channel="can0"` |
 
 选择 SocketCAN 后不需要 `libcanbus.so`，但 Linux 必须已经识别 CAN 适配器，并将对应网络接口配置为 CAN FD 模式。
 
@@ -47,7 +47,7 @@ sudo ip link set can0 up
 ip -details -statistics link show can0
 ```
 
-L30、O20 和 O30i 默认都使用 `frame_type=0x04`，即发送 CAN FD 帧但不启用 bit-rate switching。同一条按上述方式配置的 CAN FD 链路仍需保留 5 Mbit/s 数据段，以接收设备可能发送的 BRS 帧。
+L30、O20 和 O30 默认都使用 `frame_type=0x04`，即发送 CAN FD 帧但不启用 bit-rate switching。同一条按上述方式配置的 CAN FD 链路仍需保留 5 Mbit/s 数据段，以接收设备可能发送的 BRS 帧。
 
 ## 连接 L30
 
@@ -76,7 +76,7 @@ L30 的 SocketCAN 参数：
 | `channel`          | `None`      | SocketCAN 接口名，例如 `"can0"`          |
 | `bitrate`          | `1_000_000` | 仲裁段速率                               |
 | `data_bitrate`     | `5_000_000` | 数据段速率                               |
-| `frame_type`       | `0x04`      | CAN FD、不启用 BRS；`0x0C` 显式启用 BRS |
+| `frame_type`       | `0x04`      | CAN FD、不启用 BRS；`0x0C` 显式启用 BRS  |
 | `auto_reconfigure` | `False`     | 是否允许 SDK 调用 `ip link` 重新配置接口 |
 | `node_id`          | `1`         | L30 设备 NodeID，范围 1～31              |
 | `host_id`          | `0`         | 主机节点 ID，范围 0～31                  |
@@ -114,16 +114,16 @@ O20 的 SocketCAN 参数：
 | `side`              | `"right"`   | 决定默认 `device_id`                     |
 | `device_id`         | `None`      | 显式覆盖 O20 设备 ID                     |
 
-L30 与 O20/O30i 的 SocketCAN 接口参数名称不同，是为了保留各手型原有构造函数中整数 `channel` 参数的兼容性。
+L30 与 O20/O30 的 SocketCAN 接口参数名称不同，是为了保留各手型原有构造函数中整数 `channel` 参数的兼容性。
 
-## 连接 O30i
+## 连接 O30
 
-O30i 使用 HandProtocol_v1.0（HOP）、11 位标准帧 ID，实测默认请求 ID 为 `0x001`、响应 ID 为 `0x401`。它与 O20 一样使用 CAN FD、无 BRS（`frame_type=0x04`）。
+O30 使用 HandProtocol_v1.0（HOP）、11 位标准帧 ID，实测默认请求 ID 为 `0x001`、响应 ID 为 `0x401`。它与 O20 一样使用 CAN FD、无 BRS（`frame_type=0x04`）。
 
 ```python
-from linkerbot import O30i
+from linkerbot import O30
 
-with O30i(
+with O30(
     interface_type="socketcan",
     socketcan_channel="can0",
 ) as hand:
@@ -131,7 +131,7 @@ with O30i(
     print(info.product_model, info.protocol_name, info.protocol_version)
 ```
 
-O30i 的 SocketCAN 参数：
+O30 的 SocketCAN 参数：
 
 | 参数                | 默认值      | 说明                                     |
 | ------------------- | ----------- | ---------------------------------------- |
@@ -144,7 +144,7 @@ O30i 的 SocketCAN 参数：
 | `request_id`        | `0x001`     | 11 位标准帧请求 ID                       |
 | `response_id`       | `None`      | 默认自动计算为 `request_id \| 0x400`     |
 
-O30i 的连接、协议安全边界和控制接口详见 [O30i reference](./o30i/README.md)。
+O30 的连接、协议安全边界和控制接口详见 [O30 reference](./o30/README.md)。
 
 ## 让 SDK 配置接口
 
@@ -206,7 +206,7 @@ ip -details link show can0
 - 灵巧手和 CAN 适配器是否供电；
 - CAN_H、CAN_L 和 GND 是否正确连接；
 - 总线两端是否各有一个 120 Ω 终端电阻；
-- L30 的 `node_id`、O20 的 `side/device_id`，或 O30i 的 `request_id/response_id` 是否与设备一致；
+- L30 的 `node_id`、O20 的 `side/device_id`，或 O30 的 `request_id/response_id` 是否与设备一致；
 - `ip -details -statistics link show can0` 中是否出现 `bus-off`、错误计数持续增长；
 - 是否显式设置了 `frame_type=0x0C`；若 BRS 发送后 bus-off 或发送队列卡住，恢复默认 `0x04`；
 - `candump -tz -x can0` 是否能看到请求帧和设备应答帧。
