@@ -74,7 +74,7 @@ with L6(side="left", interface_name="can0") as hand:
 | L6      | 6      | `6 x 256`  |
 | O6      | 6      | `6 x 256`  |
 | L20Lite | 10     | `10 x 256` |
-| L25     | 16     | `16 x 256` |
+| L20     | 16     | `16 x 256` |
 
 映射表默认保存到 `~/.config/linkerbot/hand_angle_mappings.toml`，并按手型号、左右手和 CAN 接口分别保存，例如 `l6:left:can0`。如果需要按项目或设备指定独立配置文件，可以在构造手对象时传入 `angle_mapping_path`。
 

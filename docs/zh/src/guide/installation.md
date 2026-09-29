@@ -40,4 +40,4 @@ uv add linkerbot --extra kinetix
 > conda install pinocchio -c conda-forge
 > ```
 
-如果只使用灵巧手（L6 / L20 Lite / L25 等），无需安装此依赖。
+如果只使用灵巧手（L6 / L20 Lite / L20 等），无需安装此依赖。
