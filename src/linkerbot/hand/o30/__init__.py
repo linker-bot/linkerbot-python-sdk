@@ -42,6 +42,25 @@ from .torque import O30TorqueData, TorqueManager
 from .version import O30DeviceInfo, VersionManager
 from .voltage import O30VoltageData, VoltageManager
 
+# Backward-compatible aliases for the former O30i public API.
+O30i = O30
+O30iAccelerationData = O30AccelerationData
+O30iAngle = O30Angle
+O30iAngleData = O30AngleData
+O30iCommunicationErrors = O30CommunicationErrors
+O30iCurrentData = O30CurrentData
+O30iDeviceInfo = O30DeviceInfo
+O30iFaultData = O30FaultData
+O30iMotionTimeData = O30MotionTimeData
+O30iObject = O30Object
+O30iSensorInfo = O30SensorInfo
+O30iSnapshot = O30Snapshot
+O30iSpeedData = O30SpeedData
+O30iTemperatureData = O30TemperatureData
+O30iTorqueData = O30TorqueData
+O30iVoltageData = O30VoltageData
+
+
 __all__ = [
     "AccelerationEvent",
     "AccelerationManager",
@@ -61,6 +80,7 @@ __all__ = [
     "O30_JOINT_COUNT",
     "O30_JOINT_SPECS",
     "O30",
+    "O30i",
     "O30AccelerationData",
     "O30Angle",
     "O30AngleData",

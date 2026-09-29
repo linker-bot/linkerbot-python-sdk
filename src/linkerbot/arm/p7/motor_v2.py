@@ -5,10 +5,11 @@ P7 mixes two motor variants on a single CAN bus:
 * Joints 0-4 reuse :class:`linkerbot.arm.a7.motor.A7Motor` (CMD-byte protocol,
   PROFILE_POSITION mode, host-side polling for sensor data).
 * Joints 5-6 use :class:`MotorV2` defined here. It speaks a packed-frame
-  protocol with quantised parameters, runs in a Servo control mode (drive-side
-  PD only — no internal trajectory generator), and emits one feedback frame
-  for every command frame it receives (so polling is unnecessary, but a
-  heartbeat is required to keep the drive out of fault-on-timeout).
+  protocol with quantised parameters, runs in Motorevo P-T-M (力位混合)
+  mode (drive-side position PD + torque feedforward — no internal
+  trajectory generator), and emits one feedback frame for every command
+  frame it receives (so polling is unnecessary, but a heartbeat is
+  required to keep the drive out of fault-on-timeout).
 
 :class:`MotorV2` mirrors :class:`A7Motor`'s public surface so that
 :class:`linkerbot.arm.p7.P7` can iterate over the mixed motor list
@@ -16,6 +17,7 @@ without ``isinstance`` branches.
 """
 
 import logging
+import math
 import threading
 import time
 
@@ -31,33 +33,35 @@ from linkerbot.arm.common.model import (
     VelocityState,
 )
 from linkerbot.comm import CANMessageDispatcher
-from linkerbot.exceptions import TimeoutError
+from linkerbot.exceptions import StateError, TimeoutError
 from linkerbot.relay import DataRelay
 
 logger = logging.getLogger(__name__)
 
 
 # Quantisation ranges. The defaults below match the V2 motor's factory
-# Flash configuration for the CAN COM Theta / Velocity / Kp / Kd / Ki / Torque
+# Flash configuration for the CAN COM Theta / Velocity / Kp / Kd / Torque
 # MIN-MAX parameters; if a deployment changes those Flash values, the
 # constants here must be updated accordingly.
 _THETA_MIN, _THETA_MAX = -12.5, +12.5  # rad
 _V_MIN, _V_MAX = -10.0, +10.0  # rad/s
 _KP_POS_MIN, _KP_POS_MAX = 0.0, 250.0
 _KD_POS_MIN, _KD_POS_MAX = 0.0, 50.0
-_KP_VEL_MIN, _KP_VEL_MAX = 0.0, 250.0
-_KD_VEL_MIN, _KD_VEL_MAX = 0.0, 50.0
-_KI_VEL_MIN, _KI_VEL_MAX = 0.0, 0.05
 _TORQUE_MIN, _TORQUE_MAX = -50.0, +50.0
 
-# Default PID gains carried in every Servo-mode control frame. Values are
-# the manufacturer's recommended starting point; callers may override via
-# set_position_kp / set_velocity_kp / set_velocity_ki.
-_DEFAULT_KP_POS = 15.0
-_DEFAULT_KD_POS = 4.5
-_DEFAULT_KP_VEL = 50.0
-_DEFAULT_KD_VEL = 0.0
-_DEFAULT_KI_VEL = 0.001
+# Default position-loop gains carried in every P-T-M control frame. Values
+# are the manufacturer's recommended starting point; callers may override
+# via set_position_kp (Kd stays at the default unless set_position_kd is
+# added later).
+_DEFAULT_KP_POS = 4
+_DEFAULT_KD_POS = 15
+
+# P-T-M V_ref magnitude (rad/s). Sign follows command Δθ (same direction as
+# motion). 0.0 disables velocity feedforward. Clamped to [_V_MIN, _V_MAX].
+_DEFAULT_V_REF = 0.0
+
+# Default torque feedforward (Nm) in P-T-M frames.
+_DEFAULT_TORQUE_REF = 0.0
 
 # Heartbeat: re-send a no-op control frame this often to prevent the drive's
 # CAN-COM watchdog (default 1 s) from firing and dropping the drive back to
@@ -81,6 +85,7 @@ _FLASH_CMD_READ = 0x04
 _FLASH_CMD_WRITE = 0x15
 _FLASH_INDEX_SAVE = 0x00
 _FLASH_INDEX_CONTROL_MODE = 0x0B
+_FLASH_MODE_PTM = 2  # 0x02: Torque-Position Mixed (P-T-M)
 
 # Feedback frame status byte values. Only 0x00..0x05 are valid.
 _STATUS_REST = 0x00
@@ -100,7 +105,7 @@ def _dequantize(raw: int, vmin: float, vmax: float, bits: int) -> float:
 
 
 class MotorV2:
-    """Driver for the V2 motor variant in its Servo control mode.
+    """Driver for the V2 motor variant in Motorevo P-T-M control mode.
 
     Designed to be ducktype-compatible with
     :class:`linkerbot.arm.a7.motor.A7Motor`: same method names, same property
@@ -111,17 +116,19 @@ class MotorV2:
     Internal differences from A7Motor:
 
     - **No drive-side trajectory generator.** Every ``set_angle`` is the
-      drive's instantaneous PD target. Smooth motion requires the host to
-      stream interpolated waypoints — :meth:`P7.move_j` / :meth:`P7.move_l`
-      do this.
+      drive's instantaneous PD target (+ optional torque feedforward). Smooth
+      motion requires the host to stream interpolated waypoints —
+      :meth:`P7.move_j` / :meth:`P7.move_l` do this.
     - **State machine has only Rest / Motor states** (no continuous
       "enabled flag"). Transitions are via the fixed 8-byte commands
       ``_ENTER_MOTOR_STATE`` / ``_ENTER_REST_STATE`` / ``_SET_ZERO_POSITION``.
     - **Heartbeat required.** The drive auto-reverts to Rest after its
       CAN-COM watchdog (default 1 s) fires. A background thread re-sends
-      a no-op Servo frame every 200 ms.
+      a no-op P-T-M frame every 200 ms.
     - **Sensor data arrives unsolicited** via feedback frames (one per
       received command frame on the same ID). No polling needed.
+    - **Flash Control Mode** must be P-T-M (``0x02``). :meth:`ensure_ptm_mode`
+      writes and saves that value idempotently during P7 init.
 
     Parameters
     ----------
@@ -150,9 +157,7 @@ class MotorV2:
         self._control_acceleration: AccelerationState
         self._position_kp: float = _DEFAULT_KP_POS
         self._position_kd: float = _DEFAULT_KD_POS
-        self._velocity_kp: float = _DEFAULT_KP_VEL
-        self._velocity_kd: float = _DEFAULT_KD_VEL
-        self._velocity_ki: float = _DEFAULT_KI_VEL
+        self._torque_ref: float = _DEFAULT_TORQUE_REF
 
         # Flash protocol responses (ID = 0x600 + motor_id)
         self._flash_relay: DataRelay[bytes] = DataRelay()
@@ -205,11 +210,13 @@ class MotorV2:
 
     @property
     def velocity_kp(self) -> float:
-        return self._velocity_kp
+        # P-T-M frames have no velocity-loop gains; kept for A7Motor duck-typing.
+        return 0.0
 
     @property
     def velocity_ki(self) -> float:
-        return self._velocity_ki
+        # P-T-M frames have no velocity-loop gains; kept for A7Motor duck-typing.
+        return 0.0
 
     @property
     def fault_code(self) -> int:
@@ -235,30 +242,32 @@ class MotorV2:
         )
         self._dispatcher.send(msg)
 
-    def _build_servo_frame(self, theta_ref: float, v_ref: float) -> bytes:
-        """Build an 8-byte Servo-mode control frame.
+    def _build_ptm_frame(
+        self, theta_ref: float, v_ref: float, t_ref: float | None = None
+    ) -> bytes:
+        """Build an 8-byte P-T-M (力位混合) control frame.
 
-        Layout: theta_ref 16-bit BE, v_ref 8-bit, then four 8-bit gains
-        (position Kp, position Kd, velocity Kp, velocity Kd) and finally
-        velocity Ki. Every parameter is linearly quantised against the
-        configured MIN/MAX range; see module-level ``_*_MIN`` / ``_*_MAX``.
+        Layout (Motorevo §6.3.2): theta_ref 16-bit BE, v_ref 12-bit,
+        position Kp 12-bit, position Kd 12-bit, T_ref 12-bit, packed across
+        the remaining six bytes. Every parameter is linearly quantised
+        against the configured MIN/MAX range.
         """
+        if t_ref is None:
+            t_ref = self._torque_ref
         theta_q = _quantize(theta_ref, _THETA_MIN, _THETA_MAX, 16)
-        v_q = _quantize(v_ref, _V_MIN, _V_MAX, 8)
-        kp_pos_q = _quantize(self._position_kp, _KP_POS_MIN, _KP_POS_MAX, 8)
-        kd_pos_q = _quantize(self._position_kd, _KD_POS_MIN, _KD_POS_MAX, 8)
-        kp_vel_q = _quantize(self._velocity_kp, _KP_VEL_MIN, _KP_VEL_MAX, 8)
-        kd_vel_q = _quantize(self._velocity_kd, _KD_VEL_MIN, _KD_VEL_MAX, 8)
-        ki_vel_q = _quantize(self._velocity_ki, _KI_VEL_MIN, _KI_VEL_MAX, 8)
+        v_q = _quantize(v_ref, _V_MIN, _V_MAX, 12)
+        kp_q = _quantize(self._position_kp, _KP_POS_MIN, _KP_POS_MAX, 12)
+        kd_q = _quantize(self._position_kd, _KD_POS_MIN, _KD_POS_MAX, 12)
+        t_q = _quantize(t_ref, _TORQUE_MIN, _TORQUE_MAX, 12)
         return bytes([
             (theta_q >> 8) & 0xFF,
             theta_q & 0xFF,
-            v_q,
-            kp_pos_q,
-            kd_pos_q,
-            kp_vel_q,
-            kd_vel_q,
-            ki_vel_q,
+            (v_q >> 4) & 0xFF,
+            ((v_q & 0x0F) << 4) | ((kp_q >> 8) & 0x0F),
+            kp_q & 0xFF,
+            (kd_q >> 4) & 0xFF,
+            ((kd_q & 0x0F) << 4) | ((t_q >> 8) & 0x0F),
+            t_q & 0xFF,
         ])
 
     def _on_message(self, msg: can.Message) -> None:
@@ -320,17 +329,15 @@ class MotorV2:
     # ------------------------------------------------------------------ #
 
     def set_control_mode(self, mode: ControlMode) -> None:
-        """No-op for the V2 motor; control mode is Flash-persisted, not
-        runtime-switchable per frame.
+        """No-op for the V2 motor; control mode is Flash-persisted.
 
         P7 calls this with ``ControlMode.PP`` before enable. We accept PP
-        as the placeholder that maps onto this motor's Servo mode (already
-        configured in Flash by the factory and verified at init via
-        :meth:`check_alive`).
+        as the placeholder that maps onto this motor's P-T-M mode (ensured
+        at init via :meth:`ensure_ptm_mode`).
         """
         if mode != ControlMode.PP:
             raise ValueError(
-                f"MotorV2 only accepts ControlMode.PP (mapped to Servo); got {mode!r}"
+                f"MotorV2 only accepts ControlMode.PP (mapped to P-T-M); got {mode!r}"
             )
 
     def enable(self) -> None:
@@ -360,26 +367,40 @@ class MotorV2:
         self._save_params()
 
     # ------------------------------------------------------------------ #
-    # Control (cached, applied on the next set_angle Servo frame)
+    # Control (cached, applied on the next set_angle P-T-M frame)
     # ------------------------------------------------------------------ #
 
     def set_angle(self, angle: float) -> None:
+        """Stream a position target with signed ``V_ref`` from ``_DEFAULT_V_REF``.
+
+        Magnitude is ``_DEFAULT_V_REF`` (edit that constant to tune). Sign
+        matches the command step ``Δθ`` so feedforward is in the same
+        direction as motion. When ``Δθ == 0`` or ``_DEFAULT_V_REF == 0``,
+        ``V_ref`` is zero (position PD + torque feedforward only).
+        """
+        if hasattr(self, "_control_angle"):
+            delta = angle - self._control_angle.angle
+        else:
+            delta = 0.0
+
+        if delta == 0.0 or _DEFAULT_V_REF == 0.0:
+            v_ref = 0.0
+        else:
+            v_ref = math.copysign(_DEFAULT_V_REF, delta)
+            v_ref = max(_V_MIN, min(_V_MAX, v_ref))
+
         self._control_angle = AngleState(angle=angle, timestamp=time.time())
-        v_ref = (
-            self._control_velocity.velocity
-            if hasattr(self, "_control_velocity")
-            else 0.0
-        )
-        self._send_control(self._build_servo_frame(angle, v_ref))
+        self._send_control(self._build_ptm_frame(angle, v_ref))
 
     def set_velocity(self, velocity: float) -> None:
-        # Cached as V_ref for the next Servo control frame.
+        # Cache only for get_control_velocity / move_duration parity with A7.
+        # P-T-M V_ref comes from _DEFAULT_V_REF in set_angle, not from here.
         self._control_velocity = VelocityState(
             velocity=velocity, timestamp=time.time()
         )
 
     def set_acceleration(self, acceleration: float) -> None:
-        # Servo mode has no drive-side acceleration limit; cache for callers
+        # P-T-M mode has no drive-side acceleration limit; cache for callers
         # that read back ``control_acceleration``. The host-side trajectory
         # layer in :meth:`P7.move_j` is what actually shapes the motion
         # ramp.
@@ -388,7 +409,7 @@ class MotorV2:
         )
 
     def set_deceleration(self, deceleration: float) -> None:
-        # Servo mode has no drive-side deceleration; intentional no-op.
+        # P-T-M mode has no drive-side deceleration; intentional no-op.
         # ``P7.set_accelerations`` calls both ``set_acceleration`` and
         # ``set_deceleration`` on every motor for parity with A7.
         pass
@@ -397,36 +418,82 @@ class MotorV2:
         self._position_kp = kp
 
     def set_velocity_kp(self, kp: float) -> None:
-        self._velocity_kp = kp
+        # No-op: P-T-M control frames do not carry velocity-loop Kp.
+        # Kept so P7.set_velocity_kps can iterate mixed A7Motor / MotorV2.
+        logger.debug(
+            "Motor %d set_velocity_kp(%.4f) ignored (P-T-M has no velocity loop)",
+            self._id,
+            kp,
+        )
 
     def set_velocity_ki(self, ki: float) -> None:
-        self._velocity_ki = ki
+        # No-op: P-T-M control frames do not carry velocity-loop Ki.
+        # Kept so P7.set_velocity_kis can iterate mixed A7Motor / MotorV2.
+        logger.debug(
+            "Motor %d set_velocity_ki(%.4f) ignored (P-T-M has no velocity loop)",
+            self._id,
+            ki,
+        )
+
+    def set_torque_ref(self, torque: float) -> None:
+        """Cache torque feedforward (Nm) for subsequent P-T-M frames."""
+        self._torque_ref = torque
 
     # ------------------------------------------------------------------ #
     # Init / lifecycle
     # ------------------------------------------------------------------ #
 
     def check_alive(self, timeout_s: float = 0.1) -> bool:
-        """Read the Control Mode Flash parameter and verify it is Servo (1).
+        """Probe the motor via Flash Control Mode read.
 
-        Read-only, no motion. Returns True if the motor responds and reports
-        Servo mode. If it responds but the mode is something else, returns
-        True with a warning (so P7 init still succeeds, but callers are
-        notified that the drive is misconfigured).
+        Read-only, no motion. Returns True if the motor responds. Mode
+        value is not enforced here — :meth:`ensure_ptm_mode` brings Flash
+        to P-T-M during P7 init before control frames are sent.
         """
         try:
-            data = self._read_flash_param(_FLASH_INDEX_CONTROL_MODE, timeout_s)
+            self._read_flash_param(_FLASH_INDEX_CONTROL_MODE, timeout_s)
         except TimeoutError:
             return False
-        mode_value = int.from_bytes(data[:4], "little", signed=True)
-        if mode_value != 1:
-            logger.warning(
-                "Motor %d Flash Control Mode = %d, expected 1 (Servo). "
-                "MotorV2 only supports Servo mode.",
-                self._id,
-                mode_value,
-            )
         return True
+
+    def ensure_ptm_mode(self, timeout_s: float = 0.2) -> None:
+        """Idempotently set Flash Control Mode to P-T-M (``0x02``) and save.
+
+        Must run while the drive is in Rest and before any P-T-M control
+        frames are streamed. Skips write+save when Flash already reports
+        ``0x02``. Raises :class:`StateError` if the post-save readback does
+        not match.
+        """
+        data = self._read_flash_param(_FLASH_INDEX_CONTROL_MODE, timeout_s)
+        mode_value = int.from_bytes(data[:4], "little", signed=True)
+        if mode_value == _FLASH_MODE_PTM:
+            logger.info(
+                "Motor %d Flash Control Mode already P-T-M (2); skip write",
+                self._id,
+            )
+            return
+
+        logger.info(
+            "Motor %d Flash Control Mode = %d; writing P-T-M (2) and saving",
+            self._id,
+            mode_value,
+        )
+        # Stay in Rest during Flash erase/write (Motorevo requires mode and
+        # CAN frame layout to match before Motor State).
+        self._send_control(_ENTER_REST_STATE)
+        self._write_flash_param(
+            _FLASH_INDEX_CONTROL_MODE,
+            _FLASH_MODE_PTM.to_bytes(4, "little", signed=True),
+        )
+        self._save_params()
+
+        data = self._read_flash_param(_FLASH_INDEX_CONTROL_MODE, timeout_s)
+        mode_value = int.from_bytes(data[:4], "little", signed=True)
+        if mode_value != _FLASH_MODE_PTM:
+            raise StateError(
+                f"Motor {self._id} failed to set P-T-M mode "
+                f"(Flash Control Mode={mode_value}, expected {_FLASH_MODE_PTM})"
+            )
 
     def read_initial_state(self, timeout_s: float = 1.0) -> None:
         # Sending Enter Rest State on motor_id is safe (no motion either
@@ -508,7 +575,7 @@ class MotorV2:
             try:
                 if hasattr(self, "_control_angle"):
                     # V_ref = 0 means "hold this angle" (rigid hold via PD).
-                    frame = self._build_servo_frame(
+                    frame = self._build_ptm_frame(
                         self._control_angle.angle, v_ref=0.0
                     )
                     self._send_control(frame)

@@ -263,3 +263,14 @@ def _validate_u8(value: int, name: str) -> None:
 def _validate_int(value: int, name: str) -> None:
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValidationError(f"{name} must be int")
+
+
+# Backward-compatible aliases for the former model name.
+O30iObject = O30Object
+
+
+# Backward-compatible constant aliases for the former O30i name.
+for _name, _value in list(globals().items()):
+    if _name.startswith("O30_"):
+        globals()["O30i_" + _name[4:]] = _value
+del _name, _value

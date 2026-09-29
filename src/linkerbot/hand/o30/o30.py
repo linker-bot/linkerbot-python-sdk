@@ -440,3 +440,7 @@ def _validate_standard_id(value: int, name: str) -> None:
         raise ValidationError(f"{name} must be int")
     if value < 0 or value > 0x7FF:
         raise ValidationError(f"{name} must be an 11-bit standard CAN ID")
+
+
+# Backward-compatible alias for the former O30i class name.
+O30i = O30

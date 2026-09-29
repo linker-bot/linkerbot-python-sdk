@@ -55,8 +55,9 @@ class P7:
     protocol, drive-side trapezoidal trajectory generation).
 
     Joints 5-6 use :class:`linkerbot.arm.p7.motor_v2.MotorV2`
-    (packed-frame protocol, Servo control mode with drive-side PD only —
-    no internal trajectory generator).
+    (packed-frame protocol, Motorevo P-T-M / 力位混合 mode with drive-side
+    position PD + torque feedforward — no internal trajectory generator).
+    Init idempotently writes Flash Control Mode ``0x02`` on those joints.
 
     To unify behaviour across the mixed motor types, the motion methods
     (:meth:`move_j` / :meth:`move_l`) raise per-joint velocity / acceleration
@@ -101,6 +102,7 @@ class P7:
         self._closed: bool = False
         self._polling: bool = False
         self._check_motors()
+        self._ensure_v2_ptm_mode()
         for motor in self._motors:
             motor.read_initial_state()
         for motor in self._motors:
@@ -119,6 +121,12 @@ class P7:
                 f"Expected {NUM_JOINTS} motors, {NUM_JOINTS - len(unresponsive)} responded. "
                 f"Check wiring and power."
             )
+
+    def _ensure_v2_ptm_mode(self) -> None:
+        """Write Flash Control Mode 0x02 on Motorevo joints before control frames."""
+        for motor in self._motors:
+            if isinstance(motor, MotorV2):
+                motor.ensure_ptm_mode()
 
     def _on_bus_error(self, error: Exception) -> None:
         self._bus_error = error

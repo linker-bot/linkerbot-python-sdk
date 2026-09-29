@@ -383,3 +383,7 @@ class L20:
                 q.put_nowait(event)
             except (queue.Full, StateError):
                 pass
+
+
+# Backward-compatible alias for the former L25 class name.
+L25 = L20

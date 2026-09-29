@@ -39,11 +39,13 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "L6": ("linkerbot.hand", "L6"),
     "L20lite": ("linkerbot.hand", "L20lite"),
     "L20": ("linkerbot.hand", "L20"),
+    "L25": ("linkerbot.hand", "L25"),
     "L30": ("linkerbot.hand", "L30"),
     "L30Bus": ("linkerbot.hand", "L30Bus"),
     "O6": ("linkerbot.hand", "O6"),
     "O20": ("linkerbot.hand", "O20"),
     "O30": ("linkerbot.hand", "O30"),
+    "O30i": ("linkerbot.hand", "O30i"),
 }
 
 
@@ -71,10 +73,12 @@ __all__ = [
     "L20lite",
     "O6",
     "L20",
+    "L25",
     "L30",
     "L30Bus",
     "O20",
     "O30",
+    "O30i",
     "A7",
     "P7",
     "A7lite",

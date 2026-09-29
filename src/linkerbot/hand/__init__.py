@@ -25,11 +25,13 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "L6": ("linkerbot.hand.l6", "L6"),
     "L20lite": ("linkerbot.hand.l20lite", "L20lite"),
     "L20": ("linkerbot.hand.l20", "L20"),
+    "L25": ("linkerbot.hand.l20", "L25"),
     "L30": ("linkerbot.hand.l30", "L30"),
     "L30Bus": ("linkerbot.hand.l30", "L30Bus"),
     "O6": ("linkerbot.hand.o6", "O6"),
     "O20": ("linkerbot.hand.o20", "O20"),
     "O30": ("linkerbot.hand.o30", "O30"),
+    "O30i": ("linkerbot.hand.o30", "O30i"),
 }
 
 
@@ -47,4 +49,4 @@ def __dir__() -> list[str]:
     return sorted({*globals(), *_LAZY_EXPORTS})
 
 
-__all__ = ["L6", "O6", "L20lite", "L20", "L30", "L30Bus", "O20", "O30"]
+__all__ = ["L6", "O6", "L20lite", "L20", "L25", "L30", "L30Bus", "O20", "O30", "O30i"]

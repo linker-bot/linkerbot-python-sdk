@@ -24,8 +24,21 @@ from .temperature import L20Temperature, TemperatureData, TemperatureManager
 from .torque import L20Torque, TorqueData
 from .version import DeviceInfo, Version, VersionManager
 
+# Backward-compatible aliases for the former L25 public API.
+L25 = L20
+L25Snapshot = L20Snapshot
+L25Angle = L20Angle
+L25Speed = L20Speed
+L25Torque = L20Torque
+L25Temperature = L20Temperature
+L25Fault = L20Fault
+L25FaultCode = L20FaultCode
+
+
 __all__ = [
     "L20",
+    "L25",
+    "L25Snapshot",
     # Managers
     "ForceSensorManager",
     "TemperatureManager",
@@ -52,10 +65,16 @@ __all__ = [
     "SensorSource",
     # Type classes
     "L20Angle",
+    "L25Angle",
     "L20Speed",
+    "L25Speed",
     "L20Torque",
+    "L25Torque",
     "L20Temperature",
+    "L25Temperature",
     "L20Fault",
+    "L25Fault",
     "L20FaultCode",
+    "L25FaultCode",
     "Version",
 ]
