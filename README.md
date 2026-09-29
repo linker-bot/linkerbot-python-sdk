@@ -18,7 +18,7 @@ uv add linkerbot
 
 ### Arm users
 
-Arms (A7 / A7 Lite / P7) require Pinocchio for kinematics. Install the `kinetix` extra:
+Arms (A7 / A7 Lite) require Pinocchio for kinematics. Install the `kinetix` extra:
 
 ```bash
 # pip

@@ -24,7 +24,7 @@ uv add "linkerbot @ git+https://github.com/linker-bot/linkerbot-python-sdk"
 
 ### Kinetix（运动学，机械臂必需）
 
-机械臂（A7 / A7 Lite / P7）依赖 [Pinocchio](https://github.com/stack-of-tasks/pinocchio) 进行运动学计算，需要额外安装：
+机械臂（A7 / A7 Lite）依赖 [Pinocchio](https://github.com/stack-of-tasks/pinocchio) 进行运动学计算，需要额外安装：
 
 ```bash
 # pip (Linux / macOS)
